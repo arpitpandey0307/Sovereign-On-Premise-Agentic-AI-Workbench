@@ -2,15 +2,16 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: sih
-      POSTGRES_PASSWORD: sih
-      POSTGRES_DB: sih
+      POSTGRES_USER: ${POSTGRES_USER:-sih}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in a .env file next to this compose file}
+      POSTGRES_DB: ${POSTGRES_DB:-sih}
+    # Bound to loopback: the database is reachable from this host only.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sih"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sih}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -21,11 +22,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg://sih:sih@postgres:5432/sih
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sih}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sih}
       STORAGE_ROOT: /data/storage
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in a .env file next to this compose file}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - storage_data:/data/storage
 

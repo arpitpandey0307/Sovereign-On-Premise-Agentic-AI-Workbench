@@ -92,13 +92,13 @@ def get_model(model_id: str, user: ReadUser, db: DbSession) -> dict:
     }
 
 
-@router.get("/internal/models/health")
+@router.get("/internal/models/health", include_in_schema=False)
 async def models_health(user: ReadUser, db: DbSession) -> dict:
     """GPU state, runtime reachability and per-model readiness."""
     return await model_service.health(db)
 
 
-@router.post("/internal/models/refresh")
+@router.post("/internal/models/refresh", include_in_schema=False)
 async def refresh_registry(user: AdminUser, db: DbSession) -> dict:
     """Re-seed the catalogue and reconcile it against the running runtime."""
     outcome = await model_service.refresh_registry(db)

@@ -13,8 +13,10 @@ interfaces in `app/integrations/ports.py`.
 | 04 Orchestration, tools, sandbox | `app/orchestration`, `app/tools` | stubbed |
 | 05 Security, policy, audit | `app/security`, `app/audit` | stubbed |
 
-`GET /health` reports which parts are still served by placeholders, whether
-the local model runtime answers, and how many event buffers are retained.
+`GET /health` is a bare public liveness probe. The detailed picture — which
+parts are placeholders, whether the model runtime answers, how many event
+buffers are retained — is behind auth on `GET /api/v1/system/status`, for
+`ADMIN` and `SECURITY_ADMIN`.
 
 ## Running locally
 
@@ -29,7 +31,9 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"   # paste into JWT_
 uvicorn app.main:app --reload
 ```
 
-Interactive API docs: <http://127.0.0.1:8000/docs>
+Interactive API docs: <http://127.0.0.1:8000/docs> — served only when
+`ENABLE_API_DOCS=true`, since the schema names every route including the
+operational ones. `.env.example` enables it for local development.
 
 The default `DATABASE_URL` is SQLite, so the API runs with no external
 services. Docker Compose points the same SQLAlchemy models at PostgreSQL:
@@ -88,7 +92,8 @@ POST   /api/v1/models/route           -- what the router would pick, and why
 GET    /internal/models/health        -- GPU state, runtime reachability, readiness
 POST   /internal/models/refresh       -- re-seed and reconcile the catalogue
 
-GET    /health
+GET    /api/v1/system/status          -- operator detail (ADMIN/SECURITY_ADMIN)
+GET    /health                        -- public liveness probe, {"status": "ok"}
 ```
 
 A task is returned as `task_id`, matching the shared `Task` contract in

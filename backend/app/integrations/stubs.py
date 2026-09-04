@@ -37,8 +37,34 @@ ROLE_MAX_CLASSIFICATION = {
 }
 
 
+# Which roles may perform which action on which resource. Part 05 owns the
+# real engine; this table exists so that until it lands the permission checks
+# are actually enforced rather than waved through. Anything not listed is
+# denied -- a placeholder must fail closed, not open.
+PERMISSION_MATRIX: dict[tuple[str, str], set[str]] = {
+    ("conversation", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("conversation", "write"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("file", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("file", "upload"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("file", "delete"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("task", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("task", "create"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("artifact", "download"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("model", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN", "SECURITY_ADMIN"},
+    # Operational actions that change system state, not just the caller's own
+    # data. Deliberately narrower.
+    ("model", "admin"): {"ADMIN"},
+    ("system", "read"): {"ADMIN", "SECURITY_ADMIN"},
+    ("audit", "read"): {"ADMIN", "SECURITY_ADMIN"},
+}
+
+
 class PermissivePolicy:
-    """Role-aware but generous. Part 05 replaces this with the real engine."""
+    """Role-aware placeholder. Part 05 replaces this with the real engine.
+
+    Named "permissive" because its classification rules are generous, not
+    because it grants everything: unknown permissions are denied.
+    """
 
     def check_permission(
         self,
@@ -51,15 +77,28 @@ class PermissivePolicy:
     ) -> tuple[bool, str]:
         if not roles:
             return False, "User has no assigned role."
+
+        held = set(roles)
+        permitted = PERMISSION_MATRIX.get((resource, action))
+        if permitted is None:
+            # Fail closed: an unmapped permission is a bug, and guessing in
+            # the caller's favour is how privilege escalation happens.
+            return False, f"No policy defines {resource}:{action}."
+        if not held & permitted:
+            return False, (
+                f"{resource}:{action} requires one of "
+                f"{sorted(permitted)}; caller holds {sorted(held)}."
+            )
+
         ceiling = max(
-            (ROLE_MAX_CLASSIFICATION.get(role, "PUBLIC") for role in roles),
+            (ROLE_MAX_CLASSIFICATION.get(role, "PUBLIC") for role in held),
             key=CLASSIFICATION_ORDER.index,
         )
         if CLASSIFICATION_ORDER.index(classification) > CLASSIFICATION_ORDER.index(
             ceiling
         ):
             return False, (
-                f"Roles {roles} are cleared to {ceiling}, "
+                f"Roles {sorted(held)} are cleared to {ceiling}, "
                 f"which is below {classification}."
             )
         return True, "allowed"

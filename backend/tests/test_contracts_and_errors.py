@@ -104,9 +104,16 @@ def test_rejected_oversized_upload_leaves_no_file_behind(
     assert after == before, "a partial upload was left on disk"
 
 
-def test_health_reports_model_runtime_and_buffer_count(client):
-    body = client.get("/health").json()
-    assert "model_runtime" in body
+def test_operator_status_reports_runtime_and_buffer_count(client, make_user):
+    """The detail moved behind auth; an operator can still read it."""
+    admin, password = make_user(roles=["ADMIN"])
+    token = client.post(
+        "/api/v1/auth/login", json={"email": admin.email, "password": password}
+    ).json()["access_token"]
+
+    body = client.get(
+        "/api/v1/system/status", headers={"Authorization": f"Bearer {token}"}
+    ).json()
     assert isinstance(body["model_runtime"]["reachable"], bool)
     assert isinstance(body["event_buffers_retained"], int)
     assert body["parts"]["02_model_layer"] in {"stub", "live"}

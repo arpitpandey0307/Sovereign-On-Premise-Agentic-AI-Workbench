@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # suite never depends on a model daemon being up.
     refresh_model_registry_on_startup: bool = True
 
+    # Interactive docs publish the entire API surface, internal routes
+    # included. Off unless deliberately enabled -- .env.example turns it
+    # on for local development.
+    enable_api_docs: bool = False
+
     allow_external_network: bool = False
     # NoDecode: the env value is a comma-separated list, not JSON, so the
     # validator below owns the parsing.

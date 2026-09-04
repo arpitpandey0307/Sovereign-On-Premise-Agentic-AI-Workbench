@@ -100,8 +100,6 @@ def test_another_users_task_is_not_visible(client, auth_headers, make_user):
     assert response.status_code == 404
 
 
-def test_health_reports_which_parts_are_stubbed(client):
-    body = client.get("/health").json()
-    assert body["status"] == "ok"
-    assert body["external_network_allowed"] is False
-    assert body["parts"]["01_foundation"] == "live"
+def test_public_health_is_a_bare_liveness_probe(client):
+    """Anything richer belongs behind auth on /api/v1/system/status."""
+    assert client.get("/health").json() == {"status": "ok"}

@@ -32,3 +32,31 @@ storage/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Credentials and key material. Never commit any of these.
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.keystore
+credentials.json
+service-account*.json
+secrets.*
+*.secret
+id_rsa*
+.netrc
+.npmrc
+.pypirc
+
+# Model weights and large local artifacts
+*.gguf
+*.safetensors
+*.bin
+models/
+ollama/
+
+# Uploaded documents and generated artifacts (may contain confidential data)
+artifacts/
+uploads/
+data/

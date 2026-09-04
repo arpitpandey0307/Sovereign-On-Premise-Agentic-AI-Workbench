@@ -54,8 +54,9 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"    # paste into JWT
 uvicorn app.main:app --reload
 ```
 
-- API docs: <http://127.0.0.1:8000/docs>
-- Demo login: `admin@mrpl.local` / `workbench`
+- API docs: <http://127.0.0.1:8000/docs> (only when `ENABLE_API_DOCS=true`)
+- Demo login: `admin@mrpl.local` / `workbench` — **local development only**;
+  the app refuses to seed this account unless `DEBUG=true`
 - Tests: `pytest -q` · Lint: `ruff check app tests`
 
 Defaults to SQLite so it runs with no external services. `docker compose up`
@@ -83,5 +84,27 @@ correctly refuses to route — check `GET /internal/models/health`.
   hard constraint, not a default.
 - **Build interfaces, not dependencies.** Parts talk through the protocols in
   `app/integrations/ports.py` — never by importing another part's internals.
-- **Never commit `.env`,** local databases, or uploaded files. `.env.example` is
-  the template to copy.
+- **Never commit `.env`,** local databases, uploaded files, or key material.
+  `.env.example` is the template to copy.
+- **Fail closed.** An undefined permission is denied, not allowed. Placeholders
+  for parts that are not built yet must not be more permissive than the real
+  thing will be.
+
+## Security posture
+
+| Surface | Exposure |
+|---|---|
+| `GET /health` | public, liveness only — `{"status": "ok"}` and nothing else |
+| `/docs`, `/redoc`, `/openapi.json` | disabled unless `ENABLE_API_DOCS=true` |
+| `/api/v1/*` | authenticated, permission-checked per endpoint |
+| `/api/v1/system/status` | `ADMIN` / `SECURITY_ADMIN` only |
+| `/internal/*` | `ADMIN` only, and kept out of the published schema |
+
+- Login is throttled per account **and** per source: five failures locks that
+  key out, and the lockout applies to the correct password too, so an attacker
+  cannot read success from a changed response.
+- Validation errors report which field failed, never the value submitted.
+- Unhandled exceptions return a generic message; detail goes to the log.
+- Model provider adapters refuse any non-loopback endpoint at construction.
+- Compose binds Postgres and the API to `127.0.0.1` and takes credentials from
+  the environment — no database password is committed.

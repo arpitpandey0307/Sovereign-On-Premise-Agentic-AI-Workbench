@@ -66,6 +66,13 @@ class UnsupportedMediaTypeError(AppError):
     code = "unsupported_media_type"
 
 
+class TooManyAttemptsError(AppError):
+    """Login throttled after repeated failures."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "too_many_attempts"
+
+
 class UpstreamTimeoutError(AppError):
     """A downstream part (model runtime, orchestrator) exceeded its deadline."""
 
@@ -94,7 +101,19 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_payload(
                 "validation_error",
                 "Request payload failed validation.",
-                {"errors": exc.errors()},
+                # Only which field failed and why. The submitted value is
+                # deliberately not echoed: on a system handling confidential
+                # work, a rejected payload must not come back in the response.
+                {
+                    "errors": [
+                        {
+                            "loc": [str(part) for part in error.get("loc", [])],
+                            "type": error.get("type", "invalid"),
+                            "msg": error.get("msg", "invalid value"),
+                        }
+                        for error in exc.errors()
+                    ]
+                },
             ),
         )
 

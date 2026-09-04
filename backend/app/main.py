@@ -9,16 +9,19 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import models as models_api
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.dependencies import require
 from app.core.errors import register_exception_handlers
 from app.core.events import event_bus
 from app.db.database import SessionLocal, init_db
+from app.db.models import User
 from app.db.repositories.users import UserRepository
 from app.integrations import registry
 from app.models import port as model_port
@@ -30,6 +33,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("workbench")
 
+SystemReader = Annotated[User, Depends(require("system", "read"))]
+
 
 def _bootstrap() -> None:
     init_db()
@@ -38,7 +43,17 @@ def _bootstrap() -> None:
         repo.seed_roles()
 
         seeded = repo.get_by_email(settings.seed_admin_email)
-        if settings.seed_demo_user and seeded is None:
+        # The demo password is published in the repository README. Creating
+        # that account on a non-development instance would be handing out a
+        # known credential, so it is refused rather than warned about.
+        default_password = settings.seed_admin_password == "workbench"
+        if settings.seed_demo_user and default_password and not settings.debug:
+            logger.error(
+                "Refusing to seed %s: the default demo password is public. "
+                "Set SEED_ADMIN_PASSWORD, or SEED_DEMO_USER=false.",
+                settings.seed_admin_email,
+            )
+        elif settings.seed_demo_user and seeded is None:
             repo.create(
                 email=settings.seed_admin_email,
                 name="Workbench Admin",
@@ -92,6 +107,11 @@ app = FastAPI(
     ),
     version="0.1.0",
     lifespan=lifespan,
+    # The schema names every route, including operational ones. Publishing it
+    # to anonymous callers hands an attacker the map, so it is opt-in.
+    docs_url="/docs" if settings.enable_api_docs else None,
+    redoc_url="/redoc" if settings.enable_api_docs else None,
+    openapi_url="/openapi.json" if settings.enable_api_docs else None,
 )
 
 app.add_middleware(
@@ -112,8 +132,20 @@ def _part_status(port: object) -> str:
 
 
 @app.get("/health", tags=["system"])
-async def health() -> dict:
-    """Liveness, which parts are still placeholders, and runtime reachability."""
+def health() -> dict:
+    """Liveness only.
+
+    Deliberately says nothing about hardware, model names, or which parts are
+    wired: this is the one route an unauthenticated caller can reach, and a
+    liveness probe has no need to describe the system it is probing. The
+    detail lives behind auth on ``/api/v1/system/status``.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/system/status", tags=["system"])
+async def system_status(user: SystemReader) -> dict:
+    """The detailed picture, for operators."""
     reachable, detail = await registry.get_models().health()
     return {
         "status": "ok",
