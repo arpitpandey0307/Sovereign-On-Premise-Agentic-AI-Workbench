@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sih
+      POSTGRES_PASSWORD: sih
+      POSTGRES_DB: sih
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sih"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://sih:sih@postgres:5432/sih
+      STORAGE_ROOT: /data/storage
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in a .env file next to this compose file}
+    ports:
+      - "8000:8000"
+    volumes:
+      - storage_data:/data/storage
+
+# Neo4j (Part 03), MinIO (Part 04) and the model runtime (Part 02) are added
+# by those parts. Nothing here is exposed beyond the host: the workbench makes
+# no outbound network calls by design.
+
+volumes:
+  postgres_data:
+  storage_data:

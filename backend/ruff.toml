@@ -1,0 +1,17 @@
+line-length = 90
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4"]
+
+[lint.per-file-ignores]
+# Settings are read at import time, so the test environment must be set
+# before any application module is imported.
+"tests/conftest.py" = ["E402"]
+
+# Three places catch broadly on purpose, each to stop a non-critical failure
+# from taking down the request that triggered it:
+#   files.py      -- a failed ingestion must not fail the upload
+#   stubs.py      -- probing the local model runtime must never raise
+"app/api/files.py" = ["BLE001"]
+"app/integrations/stubs.py" = ["BLE001"]

@@ -1,0 +1,185 @@
+# Sovereign On-Premise Agentic AI Workbench — Backend
+
+Self-hosted, air-gapped-by-design AI workbench for confidential industrial
+work. All five backend parts run inside one FastAPI process (a modular
+monolith); each part owns a folder and talks to the others only through the
+interfaces in `app/integrations/ports.py`.
+
+| Part | Folder | Status |
+|---|---|---|
+| 01 Foundation — API, auth, conversations, tasks, files | `app/api`, `app/core`, `app/db` | complete |
+| 02 Model layer & routing | `app/models`, `app/routing` | complete |
+| 03 Documents & knowledge (Neo4j RAG) | `app/documents`, `app/knowledge` | stubbed |
+| 04 Orchestration, tools, sandbox | `app/orchestration`, `app/tools` | stubbed |
+| 05 Security, policy, audit | `app/security`, `app/audit` | stubbed |
+
+`GET /health` reports which parts are still served by placeholders, whether
+the local model runtime answers, and how many event buffers are retained.
+
+## Running locally
+
+```bash
+python -m venv .venv
+.venv/Scripts/activate          # Windows;  source .venv/bin/activate elsewhere
+pip install -r requirements-dev.txt      # or requirements.txt for runtime only
+
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"   # paste into JWT_SECRET_KEY
+
+uvicorn app.main:app --reload
+```
+
+Interactive API docs: <http://127.0.0.1:8000/docs>
+
+The default `DATABASE_URL` is SQLite, so the API runs with no external
+services. Docker Compose points the same SQLAlchemy models at PostgreSQL:
+
+```bash
+docker compose up --build
+```
+
+On an empty database the app seeds the five roles and one demo account
+(`admin@mrpl.local` / `workbench`). Set `SEED_DEMO_USER=false` for any
+deployment that is not the demo.
+
+## Database migrations
+
+`init_db()` calls `create_all()` on startup, which is enough while schemas are
+still moving. Alembic is configured and holds the initial migration; it reads
+`DATABASE_URL` from application settings rather than `alembic.ini`, so it
+always targets the same database the app uses.
+
+```bash
+alembic upgrade head                       # apply
+alembic revision --autogenerate -m "..."   # after changing a model
+alembic check                              # fail if models drift from migrations
+```
+
+## Tests and linting
+
+```bash
+pytest -q
+ruff check app tests
+```
+
+## API surface
+
+```
+POST   /api/v1/auth/login             GET    /api/v1/auth/me
+POST   /api/v1/auth/logout
+
+POST   /api/v1/conversations          GET    /api/v1/conversations
+GET    /api/v1/conversations/{id}     POST   /api/v1/conversations/{id}/messages
+
+POST   /api/v1/files/upload           GET    /api/v1/files/{id}
+DELETE /api/v1/files/{id}
+
+POST   /api/v1/tasks                  GET    /api/v1/tasks
+GET    /api/v1/tasks/{id}             POST   /api/v1/tasks/{id}/cancel
+POST   /api/v1/tasks/{id}/resume
+GET    /api/v1/tasks/{id}/events      -- SSE stream of AgentEvent
+GET    /api/v1/tasks/{id}/trace       -- historical trace from the audit ledger
+
+GET    /api/v1/artifacts/{id}         GET    /api/v1/artifacts/{id}/download
+
+GET    /api/v1/models                 -- the model registry
+GET    /api/v1/models/{id}            -- one model plus its measured performance
+POST   /api/v1/models/route           -- what the router would pick, and why
+GET    /internal/models/health        -- GPU state, runtime reachability, readiness
+POST   /internal/models/refresh       -- re-seed and reconcile the catalogue
+
+GET    /health
+```
+
+A task is returned as `task_id`, matching the shared `Task` contract in
+`app/schemas/shared.py`. `id` is serialised alongside it, so a client written
+against either name works.
+
+Every error shares one envelope — including 404s on unknown routes and
+unhandled exceptions — so the frontend never parses a second shape:
+
+```json
+{"error": {"code": "permission_denied", "message": "...", "details": {}}}
+```
+
+Codes in use: `unauthenticated`, `permission_denied`, `not_found`, `conflict`,
+`payload_too_large`, `unsupported_media_type`, `validation_error`,
+`method_not_allowed`, `internal_error`. An unhandled exception returns a
+generic message and logs the detail server-side — on a system holding
+confidential work, internals must not reach the client.
+
+## How the other parts attach
+
+Part 01 depends on six protocols in `app/integrations/ports.py` and resolves
+them through `app/integrations/registry.py`. Placeholders in
+`app/integrations/stubs.py` keep the API runnable end to end today; each part
+replaces its own by calling the matching `register_*` function at startup.
+
+```python
+from app.integrations import registry
+registry.register_orchestrator(LangGraphOrchestrator())   # Part 04
+```
+
+Nothing else in Part 01 changes when a real implementation lands.
+
+| Port | Owner | Placeholder |
+|---|---|---|
+| `ModelPort` | Part 02 | **live** — `ModelLayer` over the real registry |
+| `DocumentsPort` | Part 03 | `NoopDocuments` |
+| `OrchestratorPort` | Part 04 | `EchoOrchestrator` — real status transitions and event names |
+| `ArtifactsPort` | Part 04 | `EmptyArtifacts` |
+| `PolicyPort` | Part 05 | `PermissivePolicy` — role → classification ceiling |
+| `AuditPort` | Part 05 | `InMemoryAudit` |
+
+No placeholder fabricates model output. `EchoOrchestrator` walks the real
+status machine and emits the event names Part 04 will emit, so the frontend
+timeline is buildable before LangGraph exists.
+
+
+## The model layer (Part 02)
+
+The rest of the system never names a runtime. Part 04 hands `ModelService` a
+`TaskRequirements` and gets back an answer plus the reasoning behind it.
+
+### Routing
+
+Three filters run in a fixed order, and the order carries the policy:
+
+1. **Capability** — a model that cannot do the job is not a candidate at any price.
+2. **Policy** (Part 05) — a model not cleared for the data is not a candidate however good it is. Quality never overrides classification.
+3. **Hardware** — a model that will not load is not a candidate either. Free VRAM is measured live, minus CUDA overhead and KV-cache headroom.
+
+Survivors are ranked by the seven-factor weighted score from the spec
+(`task_accuracy` .30, `capability_match` .20, `context_fit` .15, `latency` .10,
+`resource_efficiency` .10, `historical_success` .10, `reliability` .05). Ties
+break toward the **smaller** model: leaving VRAM free is what lets the vision
+model run beside the reasoner on an 8 GB card.
+
+Every decision records what it considered, why each model was excluded and at
+which stage, the full score breakdown, and a fallback chain. `POST
+/api/v1/models/route` returns exactly that payload — it is what fills the
+frontend's "why was this model chosen" panel.
+
+### The feedback loop
+
+Every generation writes its outcome to `model_stats`: successes, failures,
+malformed-JSON replies, and an exponentially weighted latency average, keyed by
+model *and* task type. The next routing decision reads those numbers back
+through the `historical_success`, `latency` and `reliability` factors, so a
+model that starts failing is demoted without anyone editing a config.
+
+If the chosen model fails at generation time, the service walks the fallback
+chain automatically and marks the failed model unavailable.
+
+### Catalogue
+
+The catalogue is seeded from the GPU actually present — an 8 GB plan, a 6 GB
+plan, and a CPU-only plan — so the same code installs the right models on
+whichever machine runs the demo. Models are marked `ready` only when the
+runtime confirms it holds them; an unpulled model is never routed to, and the
+status carries the `ollama pull` command that would fix it.
+
+### Sovereignty
+
+Both provider adapters refuse a non-loopback endpoint at construction. The
+check is enforced rather than assumed, and it is covered by a test.
