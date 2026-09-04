@@ -22,6 +22,9 @@ os.environ["STORAGE_ROOT"] = (_tmp / "storage").as_posix()
 os.environ["JWT_SECRET_KEY"] = "test-secret-" + "x" * 40
 os.environ["SEED_DEMO_USER"] = "false"
 os.environ["REFRESH_MODEL_REGISTRY_ON_STARTUP"] = "false"
+# Pinned rather than inherited: a developer enabling docs locally must not
+# change what the suite exercises.
+os.environ["ENABLE_API_DOCS"] = "false"
 
 from fastapi.testclient import TestClient
 

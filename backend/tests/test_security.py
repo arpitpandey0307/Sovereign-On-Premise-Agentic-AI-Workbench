@@ -98,6 +98,12 @@ def test_system_status_requires_auth(client):
 
 def test_api_schema_is_not_published_by_default(client):
     """The schema names every route; publishing it hands over the map."""
+    from app.core.config import Settings
+
+    # The shipped default is off, whatever a developer sets locally.
+    assert Settings(_env_file=None).enable_api_docs is False
+
+    # And with it off, the routes genuinely are not served.
     assert settings.enable_api_docs is False
     for path in ("/openapi.json", "/docs", "/redoc"):
         assert client.get(path).status_code == 404, path

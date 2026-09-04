@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     storage_root: Path = Path("./storage")
     max_upload_size_mb: int = 100
 
+    # OCR engine (Part 03). Empty means "find it on PATH"; set it
+    # explicitly when the installer did not add it there.
+    tesseract_cmd: str = ""
+
+    # Neo4j (Part 03). Loopback only, like every other dependency here.
+    neo4j_uri: str = "bolt://127.0.0.1:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
+
     # Model runtimes. Both must be loopback or a compose service name --
     # the provider adapters refuse anything else.
     ollama_base_url: str = "http://127.0.0.1:11434"
