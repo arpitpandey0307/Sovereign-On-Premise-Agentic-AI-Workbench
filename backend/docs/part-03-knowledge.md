@@ -74,6 +74,19 @@ Ollama has no rerank endpoint at all (`/api/rerank` returns 404), which is why
 the cross-encoder tier is a vLLM-provider entry in the catalogue. It becomes
 live by itself the day the lab box serves it.
 
+A fallback always records *why* a better tier did not run, in
+`diagnostics.notes`. That is not politeness: a fallback that answers without
+explaining itself is precisely how the graph client hid a broken query for as
+long as it did.
+
+**On an 8 GB card the vision pass and the model rerank compete for VRAM.**
+Observed directly: with `gemma3:4b` resident after describing a drawing, only
+2.1 GB was usable, and the router correctly refused to load the 6.5 GB
+reasoner — so the rerank fell back to lexical and said so. This is the router
+doing its job, not a fault, but it means back-to-back vision and reasoning work
+on this hardware will serialise. `ollama stop` on the vision model frees it, and
+the lab GPU box makes the question moot.
+
 ## Clearance filtering
 
 Retrieval never takes a classification from its caller. `KnowledgeService`

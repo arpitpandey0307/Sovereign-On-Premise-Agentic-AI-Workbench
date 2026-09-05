@@ -16,6 +16,7 @@ depend on a binary fixture.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import sys
@@ -39,6 +40,7 @@ from app.db.repositories.documents import DocumentRepository  # noqa: E402
 from app.db.repositories.users import UserRepository  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.registry import ModelRegistry  # noqa: E402
+from app.models.service import model_service  # noqa: E402
 
 # What the generated drawing actually contains. The check is that the model
 # reads these off the image, not that it produces any particular prose.
@@ -93,14 +95,17 @@ def main() -> int:
     print("=== 0. a vision model is registered and ready ===")
     init_db()
     with SessionLocal() as db:
-        ready = [
-            record
-            for record in ModelRegistry(db).of_type("vision")
-            if record.status == "ready"
-        ]
-        for record in ModelRegistry(db).of_type("vision"):
+        # The app seeds and reconciles the catalogue during startup, which
+        # only runs once the TestClient below is entered. This check comes
+        # first, so it has to do the reconciliation itself rather than read an
+        # empty registry and report a missing model that is actually pulled.
+        asyncio.run(model_service.refresh_registry(db))
+
+        vision_models = ModelRegistry(db).of_type("vision")
+        for record in vision_models:
             print(f"    {record.model_identifier}: {record.status} "
                   f"({record.status_detail})")
+        ready = [record for record in vision_models if record.status == "ready"]
     check("a vision model is ready", bool(ready))
     if not ready:
         print("\nNothing further can be checked. Run: ollama pull gemma3:4b")

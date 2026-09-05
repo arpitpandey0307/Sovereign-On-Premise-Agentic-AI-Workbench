@@ -137,16 +137,20 @@ def rerank_with_model(
     candidates: list[Candidate],
     *,
     classification: str = "INTERNAL",
-) -> tuple[list[tuple[str, float]], str]:
+) -> tuple[list[tuple[str, float]], str, str]:
     """Rerank using a model where one is available.
 
-    Returns ``(ordering, method)``. ``method`` names what actually ran, so the
-    evidence panel can say whether a model was involved rather than implying
-    one was.
+    Returns ``(ordering, method, reason)``. ``method`` names what actually ran,
+    so the evidence panel can say whether a model was involved rather than
+    implying one was, and ``reason`` says why a better tier did not -- a
+    fallback that answers without explaining itself is how a broken tier stays
+    broken, which is exactly how the graph client hid a bug.
     """
     lexical = rerank(query, candidates)
-    if not settings.enable_model_rerank or len(candidates) < 2:
-        return lexical, "lexical"
+    if not settings.enable_model_rerank:
+        return lexical, "lexical", "model rerank is disabled by configuration"
+    if len(candidates) < 2:
+        return lexical, "lexical", ""
 
     shortlist = [
         candidate
@@ -154,9 +158,9 @@ def rerank_with_model(
         if candidate.chunk_id in {chunk_id for chunk_id, _ in lexical[:SHORTLIST]}
     ]
 
-    scores, method = _model_scores(db, query, shortlist, classification)
+    scores, method, reason = _model_scores(db, query, shortlist, classification)
     if scores is None:
-        return lexical, "lexical"
+        return lexical, "lexical", reason
 
     lexical_by_id = dict(lexical)
     blended = {
@@ -164,13 +168,17 @@ def rerank_with_model(
         for chunk_id, score in lexical_by_id.items()
     }
     ordered = sorted(blended.items(), key=lambda item: item[1], reverse=True)
-    return ordered, method
+    return ordered, method, ""
 
 
 def _model_scores(
     db: Session, query: str, shortlist: list[Candidate], classification: str
-) -> tuple[dict[str, float] | None, str]:
-    """Try the cross-encoder, then model scoring. ``None`` means neither ran."""
+) -> tuple[dict[str, float] | None, str, str]:
+    """Try the cross-encoder, then model scoring.
+
+    Returns ``(scores, method, reason)``; ``scores`` is ``None`` when neither
+    tier ran, and ``reason`` then explains what stopped them.
+    """
     from app.models.service import model_service
     from app.routing.model_router import ModelRouter, TaskRequirements
 
@@ -205,6 +213,7 @@ def _model_scores(
                         for item, score in zip(shortlist, raw, strict=False)
                     },
                     "cross_encoder",
+                    "",
                 )
             except Exception as exc:
                 logger.warning("cross-encoder rerank failed: %s", exc)
@@ -214,7 +223,7 @@ def _model_scores(
 
 def _score_through_reasoning(
     db: Session, query: str, shortlist: list[Candidate], classification: str
-) -> tuple[dict[str, float] | None, str]:
+) -> tuple[dict[str, float] | None, str, str]:
     """One structured-output call scoring the whole shortlist."""
     from app.knowledge.embeddings import run_sync
     from app.models.service import model_service
@@ -248,10 +257,14 @@ def _score_through_reasoning(
         )
     except Exception as exc:
         logger.warning("model rerank failed: %s", exc)
-        return None, "lexical"
+        return None, "lexical", f"{type(exc).__name__}: {exc}"
 
-    if not outcome.succeeded or not outcome.response.structured:
-        return None, "lexical"
+    if not outcome.succeeded:
+        # Usually the router declining: no reasoning model is pulled, or the
+        # one that is will not fit in the VRAM left after a resident model.
+        return None, "lexical", outcome.error or "no reasoning model was available"
+    if not outcome.response.structured:
+        return None, "lexical", "the model did not return scoreable JSON"
 
     scores: dict[str, float] = {}
     for entry in outcome.response.structured.get("scores", []):
@@ -265,5 +278,5 @@ def _score_through_reasoning(
                 continue
 
     if not scores:
-        return None, "lexical"
-    return scores, "model_scored"
+        return None, "lexical", "the model returned no usable scores"
+    return scores, "model_scored", ""

@@ -123,7 +123,7 @@ def search(
     if not fused:
         return SearchResult(evidence=[], diagnostics=diagnostics)
 
-    ordered, method = rerank_with_model(
+    ordered, method, rerank_reason = rerank_with_model(
         db,
         query,
         [
@@ -134,6 +134,8 @@ def search(
         classification=max(classifications, key=CLASSIFICATION_ORDER.index),
     )
     diagnostics.rerank_method = method
+    if rerank_reason:
+        diagnostics.notes.append(f"rerank fell back to lexical: {rerank_reason}")
 
     documents = {
         document.id: document

@@ -120,13 +120,20 @@ def test_reranking_falls_back_to_lexical_with_no_model(db):
         Candidate("wrong", "Valve V-104 serves the standby train.", 0.016),
         Candidate("right", "Close valve V-103 and lock it out.", 0.015),
     ]
-    ordered, method = rerank_with_model(db, "how do I isolate V-103?", candidates)
+    ordered, method, reason = rerank_with_model(
+        db, "how do I isolate V-103?", candidates
+    )
     assert method == "lexical"
     assert ordered[0][0] == "right"
+    # The fallback says why, so a tier that is silently broken cannot hide
+    # behind one that still answers.
+    assert reason
 
 
 def test_a_single_candidate_is_not_worth_a_model_call(db):
-    ordered, method = rerank_with_model(db, "V-103", [Candidate("a", "V-103", 0.1)])
+    ordered, method, _ = rerank_with_model(
+        db, "V-103", [Candidate("a", "V-103", 0.1)]
+    )
     assert method == "lexical"
     assert [chunk_id for chunk_id, _ in ordered] == ["a"]
 
@@ -139,16 +146,17 @@ def test_the_model_rerank_can_be_switched_off(db, monkeypatch):
     def _should_not_run(*args, **kwargs):
         nonlocal called
         called = True
-        return None, "lexical"
+        return None, "lexical", ""
 
     monkeypatch.setattr(reranker.settings, "enable_model_rerank", False)
     monkeypatch.setattr(reranker, "_model_scores", _should_not_run)
 
-    _, method = rerank_with_model(
+    _, method, reason = rerank_with_model(
         db, "V-103", [Candidate("a", "V-103", 0.1), Candidate("b", "V-104", 0.2)]
     )
     assert method == "lexical"
     assert not called
+    assert "disabled by configuration" in reason
 
 
 def test_a_model_score_reorders_but_cannot_bury_an_exact_tag(db, monkeypatch):
@@ -166,10 +174,10 @@ def test_a_model_score_reorders_but_cannot_bury_an_exact_tag(db, monkeypatch):
     monkeypatch.setattr(
         reranker,
         "_model_scores",
-        lambda *args, **kwargs: ({"wrong": 0.9, "right": 0.1}, "model_scored"),
+        lambda *args, **kwargs: ({"wrong": 0.9, "right": 0.1}, "model_scored", ""),
     )
 
-    ordered, method = rerank_with_model(db, "how do I isolate V-103?", candidates)
+    ordered, method, _ = rerank_with_model(db, "how do I isolate V-103?", candidates)
     assert method == "model_scored"
     assert ordered[0][0] == "right"
 
@@ -184,10 +192,10 @@ def test_a_model_score_does_reorder_when_no_tag_is_at_stake(db, monkeypatch):
     monkeypatch.setattr(
         reranker,
         "_model_scores",
-        lambda *args, **kwargs: ({"second": 1.0, "first": 0.0}, "model_scored"),
+        lambda *args, **kwargs: ({"second": 1.0, "first": 0.0}, "model_scored", ""),
     )
 
-    ordered, _ = rerank_with_model(db, "when do I need a permit?", candidates)
+    ordered, _, _ = rerank_with_model(db, "when do I need a permit?", candidates)
     assert ordered[0][0] == "second"
 
 
@@ -380,3 +388,77 @@ def test_the_files_list_pages(client, auth_headers):
     page = client.get("/api/v1/files?limit=2&offset=0", headers=auth_headers).json()
     assert len(page["items"]) == 2
     assert page["limit"] == 2 and page["offset"] == 0
+
+
+def test_search_diagnostics_explain_a_rerank_fallback(db, corpus_free_search):
+    """A tier that cannot run must say so, not just report the tier that did.
+
+    The graph client hid a real bug for exactly this reason: a fallback that
+    answers without explaining itself makes a broken tier look like a working
+    one.
+    """
+    # A query matching both chunks, so there is genuinely something to
+    # rerank -- a single candidate skips the tier outright and rightly
+    # explains nothing.
+    result = corpus_free_search("valve")
+    assert result.diagnostics.rerank_method == "lexical"
+    assert any(
+        "rerank fell back to lexical" in note for note in result.diagnostics.notes
+    )
+
+
+@pytest.fixture
+def corpus_free_search(db, make_user):
+    """A one-document corpus and a search closure over it."""
+    from uuid import uuid4
+
+    from app.db.models import Document, DocumentChunk
+    from app.knowledge import retrieval
+
+    user, _ = make_user()
+    document = Document(
+        id=uuid4(),
+        file_id=uuid4(),
+        owner_id=user.id,
+        filename="SOP.pdf",
+        mime_type="application/pdf",
+        checksum="3" * 64,
+        storage_path="unused",
+        classification="INTERNAL",
+        kind="pdf_text",
+        status="active",
+    )
+    db.add(document)
+    db.flush()
+    db.add_all(
+        [
+            DocumentChunk(
+                document_id=document.id,
+                ordinal=0,
+                page=1,
+                text="Close valve V-103 and lock it out.",
+                classification="INTERNAL",
+                char_count=34,
+            ),
+            DocumentChunk(
+                document_id=document.id,
+                ordinal=1,
+                page=2,
+                text="Valve V-104 serves the standby train.",
+                classification="INTERNAL",
+                char_count=37,
+            ),
+        ]
+    )
+    db.commit()
+
+    def _search(query: str):
+        return retrieval.search(
+            db,
+            query,
+            classifications=["INTERNAL"],
+            limit=3,
+            document_ids=[document.id],
+        )
+
+    return _search
