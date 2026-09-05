@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -99,6 +100,9 @@ def main() -> int:
             )
             check(f"{name} ingested", response.status_code == 201)
             uploaded = response.json()["id"]
+
+        listed = client.get("/api/v1/documents", headers=headers).json()
+        ingested = [UUID(item["id"]) for item in listed["items"]]
 
         conversation = client.post(
             "/api/v1/conversations", headers=headers, json={"title": "sovereignty"}
@@ -201,6 +205,8 @@ def main() -> int:
                   for name in ("update", "delete", "purge", "clear")
               ))
 
+    _cleanup_graph(ingested)
+
     print("\n" + "=" * 62)
     if failures:
         print(f"FAILURES ({len(failures)}):")
@@ -222,6 +228,22 @@ def main() -> int:
 # correct monitor classifies them as local, which is what the first version
 # of this check got wrong.
 UNROUTED_EXTERNAL = "192.88.99.1"
+
+
+def _cleanup_graph(document_ids: list) -> None:
+    """Remove what this run put in the shared graph.
+
+    The relational store is a throwaway file, but Neo4j is shared with every
+    other verification script and with the developer's own corpus. A script
+    that leaves its documents behind makes the next run's results depend on
+    how many times it has been run before -- which is exactly how the
+    clearance check in verify_neo4j.py started failing for no real reason.
+    """
+    from app.knowledge.neo4j_client import neo4j_client
+
+    for document_id in document_ids:
+        if document_id is not None:
+            neo4j_client.delete_document(document_id)
 
 
 def _attempt_external() -> None:

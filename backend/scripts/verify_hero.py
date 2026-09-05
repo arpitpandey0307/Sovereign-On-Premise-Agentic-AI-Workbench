@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -155,6 +156,7 @@ def main() -> int:
         documents = client.get("/api/v1/documents", headers=headers).json()
         check("both documents indexed", documents["total"] >= 2,
               f"{documents['total']} indexed")
+        ingested = [UUID(item["id"]) for item in documents["items"]]
 
         print("\n=== 2. run the workflow ===")
         created = client.post(
@@ -230,6 +232,8 @@ def main() -> int:
         saved.write_bytes(download.content)
         print(f"\n    saved to {saved}")
 
+    _cleanup_graph(ingested)
+
     print("\n" + "=" * 62)
     if failures:
         print(f"FAILURES ({len(failures)}):")
@@ -238,6 +242,22 @@ def main() -> int:
         return 1
     print("The hero workflow works end to end.")
     return 0
+
+
+def _cleanup_graph(document_ids: list) -> None:
+    """Remove what this run put in the shared graph.
+
+    The relational store is a throwaway file, but Neo4j is shared with every
+    other verification script and with the developer's own corpus. A script
+    that leaves its documents behind makes the next run's results depend on
+    how many times it has been run before -- which is exactly how the
+    clearance check in verify_neo4j.py started failing for no real reason.
+    """
+    from app.knowledge.neo4j_client import neo4j_client
+
+    for document_id in document_ids:
+        if document_id is not None:
+            neo4j_client.delete_document(document_id)
 
 
 def _wait(client, headers, task_id: str, *, timeout_s: float = 900.0) -> dict:

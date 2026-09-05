@@ -224,16 +224,40 @@ def main() -> int:
                 "SET c.classification = 'HIGHLY_CONFIDENTIAL'",
                 id=str(document_id),
             )
+            # Scoped to this run's own chunks. Asserting the result is empty
+            # would only hold on an empty graph, and this one is shared with
+            # every other verification script -- so an accumulated INTERNAL
+            # chunk from an earlier run would fail a check that is actually
+            # about the clearance filter.
+            ours = {
+                str(row["id"])
+                for row in (
+                    neo4j_client._run(
+                        "MATCH (:Document {id: $id})-[:HAS_CHUNK]->(c:Chunk) "
+                        "RETURN c.id AS id",
+                        id=str(document_id),
+                    )
+                    or []
+                )
+            }
             below = neo4j_client.fulltext_search(
-                '"V-103"', limit=5, classifications=["PUBLIC", "INTERNAL"]
+                '"V-103"', limit=25, classifications=["PUBLIC", "INTERNAL"]
             )
-            check("chunks above clearance are excluded by the index query",
-                  below == [], str(below))
+            leaked = [hit.chunk_id for hit in (below or []) if hit.chunk_id in ours]
+            check(
+                "chunks above clearance are excluded by the index query",
+                leaked == [],
+                f"{len(leaked)} of this run's {len(ours)} chunks leaked",
+            )
             cleared = neo4j_client.fulltext_search(
-                '"V-103"', limit=5, classifications=["HIGHLY_CONFIDENTIAL"]
+                '"V-103"', limit=25, classifications=["HIGHLY_CONFIDENTIAL"]
             )
-            check("and returned to a cleared caller", bool(cleared),
-                  f"{len(cleared or [])} hit(s)")
+            recovered = [hit.chunk_id for hit in (cleared or []) if hit.chunk_id in ours]
+            check(
+                "and returned to a cleared caller",
+                bool(recovered),
+                f"{len(recovered)} of this run's chunks returned",
+            )
 
             print("\n=== 7. status reports the graph as live ===")
             admin = _login(client, "verify-admin@mrpl.local",
