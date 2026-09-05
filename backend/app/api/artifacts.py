@@ -60,7 +60,7 @@ def download_artifact(
 ) -> FileDownloadResponse:
     artifact = _authorised_artifact(artifact_id, user, db)
 
-    path = storage.resolve(artifact.storage_path)
+    path = storage.local_path(artifact.storage_path)
     if not path.is_file():
         raise NotFoundError("Artifact file is missing from storage.")
 

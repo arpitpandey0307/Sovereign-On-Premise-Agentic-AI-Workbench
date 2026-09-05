@@ -23,6 +23,8 @@ select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4"]
 #   vision.py       -- an undescribed drawing is still an ingested drawing
 #   hardware.py     -- a runtime that will not answer means nothing is
 #                      reclaimable, which is the conservative answer
+#   storage.py      -- an unreachable object store falls back to the
+#                      filesystem rather than taking the API down
 #   docker_runner.py-- the sandbox reports failure, it never propagates it:
 #                      untrusted code must not be able to raise into the host
 #   generators/*    -- invalid model content is a refusal, not a crash
@@ -37,6 +39,7 @@ select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4"]
 "app/knowledge/reranker.py" = ["BLE001"]
 "app/documents/vision.py" = ["BLE001"]
 "app/routing/hardware.py" = ["BLE001"]
+"app/core/storage.py" = ["BLE001"]
 "app/sandbox/docker_runner.py" = ["BLE001"]
 "app/tools/generators/docx.py" = ["BLE001"]
 "app/tools/generators/xlsx.py" = ["BLE001"]

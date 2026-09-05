@@ -23,3 +23,4 @@ python-docx>=1.1
 openpyxl>=3.1
 python-pptx>=1.0
 docker>=7.1               # sandbox runner; talks to the local daemon only
+minio>=7.2                # object storage; the endpoint is validated as local

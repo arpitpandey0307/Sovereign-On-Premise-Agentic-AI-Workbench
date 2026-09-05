@@ -47,12 +47,44 @@ services:
       retries: 12
       start_period: 30s
 
+  minio:
+    # Object storage for uploads and generated artifacts. On the internal
+    # network with everything else that holds document content: it has no
+    # route off the host, which is the point.
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in a .env file next to this compose file}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in a .env file next to this compose file}
+      # No call home, for the same reason Neo4j's usage report is off.
+      MINIO_UPDATE: "off"
+    # Deliberately no published ports. A container on an internal network
+    # cannot publish any -- publishing needs the external connectivity the
+    # internal network exists to remove -- so the S3 API and the console are
+    # reachable only from inside the compose network, which is exactly the
+    # guarantee wanted for the service holding document content.
+    #
+    # The consequence, stated because it will otherwise surprise someone: an
+    # api process running on the host rather than in compose cannot reach
+    # this MinIO, and should keep STORAGE_BACKEND=filesystem.
+    networks: [sovereign]
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   api:
     build: .
     depends_on:
       postgres:
         condition: service_healthy
       neo4j:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sih}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sih}
@@ -64,6 +96,10 @@ services:
       # The model runtime stays on the host: it needs the GPU, and passing a
       # card into a container is a deployment concern, not an MVP one.
       OLLAMA_BASE_URL: http://host.docker.internal:11434
+      STORAGE_BACKEND: minio
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     # Two networks on purpose. Everything this service needs -- Postgres,
     # Neo4j -- is on the internal one, which Docker gives no default route, so
     # those containers cannot reach the internet even if something in them
@@ -78,8 +114,9 @@ services:
     volumes:
       - storage_data:/data/storage
 
-# MinIO (Part 04) is added by that part. Nothing here is exposed beyond the
-# host: the workbench makes no outbound network calls by design.
+# Nothing here is exposed beyond the host: every published port is bound to
+# loopback, and the services that hold document content have no route off the
+# machine at all.
 
 networks:
   # internal: true removes the default route. A container on this network has
@@ -93,6 +130,7 @@ networks:
     driver: bridge
 
 volumes:
+  minio_data:
   postgres_data:
   storage_data:
   neo4j_data:

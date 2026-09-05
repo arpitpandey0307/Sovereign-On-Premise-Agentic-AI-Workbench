@@ -35,6 +35,12 @@ Interactive API docs: <http://127.0.0.1:8000/docs> — served only when
 `ENABLE_API_DOCS=true`, since the schema names every route including the
 operational ones. `.env.example` enables it for local development.
 
+Uploads and generated artifacts go to the local filesystem by default, which
+needs nothing running. `STORAGE_BACKEND=minio` switches to object storage;
+compose sets it for the containerised api. A configured but unreachable MinIO
+falls back to the filesystem rather than taking the API down, and
+`/api/v1/system/status` reports which backend is actually in use.
+
 The default `DATABASE_URL` is SQLite, so the API runs with no external
 services. Docker Compose points the same SQLAlchemy models at PostgreSQL
 and brings up Neo4j for the knowledge index (set `NEO4J_PASSWORD` first —
@@ -61,6 +67,7 @@ python scripts/verify_sandbox.py   # sandbox confinement, against real Docker
 python scripts/verify_vision.py    # the vision pass, against a real model
 python scripts/verify_hero.py      # the demo workflow, end to end
 python scripts/verify_sovereignty.py  # zero external calls, provably watched
+python scripts/verify_storage.py   # MinIO round trip (see its docstring)
 ```
 
 ## Database migrations

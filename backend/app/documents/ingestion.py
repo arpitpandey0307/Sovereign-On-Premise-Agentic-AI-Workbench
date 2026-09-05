@@ -86,7 +86,7 @@ def ingest_file(db: Session, file_id: UUID) -> IngestionReport:
     if record is None:
         raise ValueError("File not found.")
 
-    path = storage.resolve(record.storage_path)
+    path = storage.local_path(record.storage_path)
     if not Path(path).exists():
         raise FileNotFoundError("The stored file is missing.")
 

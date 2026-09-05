@@ -26,7 +26,18 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
 
+    # Object storage. "filesystem" needs nothing running and is what the
+    # MVP uses; "minio" is the deployment target from the shared tech stack.
+    # A configured-but-unreachable MinIO falls back to the filesystem rather
+    # than taking the API down, and says so on the status endpoint.
+    storage_backend: str = "filesystem"
     storage_root: Path = Path("./storage")
+
+    minio_endpoint: str = "127.0.0.1:9000"
+    minio_bucket: str = "workbench"
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_secure: bool = False
     max_upload_size_mb: int = 100
 
     # OCR engine (Part 03). Empty means "find it on PATH"; set it

@@ -23,6 +23,7 @@ from app.core.config import settings
 from app.core.dependencies import require
 from app.core.errors import register_exception_handlers
 from app.core.events import event_bus
+from app.core.storage import storage
 from app.db.database import SessionLocal, init_db
 from app.db.models import User
 from app.db.repositories.users import UserRepository
@@ -173,6 +174,10 @@ async def system_status(user: SystemReader) -> dict:
         "app": settings.app_name,
         "version": app.version,
         "external_network_allowed": settings.allow_external_network,
+        # The backend actually in use, not the one configured: MinIO
+        # falls back to the filesystem when unreachable, and that has to
+        # be visible rather than silent.
+        "object_storage": storage.name,
         "model_runtime": {"reachable": reachable, "detail": detail},
         "event_buffers_retained": event_bus.retained_tasks(),
         "parts": {
