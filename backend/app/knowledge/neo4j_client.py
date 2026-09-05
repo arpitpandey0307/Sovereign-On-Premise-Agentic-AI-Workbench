@@ -103,7 +103,13 @@ class Neo4jClient:
             return None
         try:
             with driver.session(database=settings.neo4j_database) as session:
-                return [record.data() for record in session.run(cypher, **params)]
+                # Parameters go in as a dict, never as **kwargs. The driver's
+                # own signature is run(query, parameters=None, **kw), so a
+                # Cypher parameter named "query" -- which the full-text search
+                # uses -- would bind to the driver's first argument instead and
+                # raise, and this method would report it as the graph being
+                # down.
+                return [record.data() for record in session.run(cypher, params)]
         except Exception as exc:
             self._last_error = f"{type(exc).__name__}: {exc}"
             logger.warning("Cypher failed: %s", self._last_error)

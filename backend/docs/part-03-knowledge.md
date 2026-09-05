@@ -115,3 +115,21 @@ app/documents/          app/knowledge/
 ├── ingestion.py        └── service.py        -- the KnowledgePort
 └── port.py
 ```
+
+## Verifying the graph path
+
+`tests/` pins `NEO4J_PASSWORD` empty so the suite always exercises the
+relational fallback and never passes or fails on whether a container is
+running. That leaves the graph path uncovered by pytest, so it is checked by
+`scripts/verify_neo4j.py` against a live server: index creation and state,
+both retrieval arms reporting `neo4j` rather than a fallback, the equipment
+traversal, reingest replacing rather than duplicating graph state, and the
+clearance filter being applied inside the Cypher.
+
+Run it whenever the Cypher changes. It caught a real one: parameters were
+forwarded to the driver as `**kwargs`, and since `Session.run` is
+`run(query, parameters=None, **kw)`, a Cypher parameter named `query` bound to
+the driver's own first argument and raised. The absent-tolerant wrapper
+reported that as the graph being unreachable, so every full-text search
+silently used the local scan and nothing looked broken. Fallback notes now
+distinguish an unreachable graph from a reachable one whose query failed.

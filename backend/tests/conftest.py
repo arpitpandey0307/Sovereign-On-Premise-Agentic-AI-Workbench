@@ -25,6 +25,12 @@ os.environ["REFRESH_MODEL_REGISTRY_ON_STARTUP"] = "false"
 # Pinned rather than inherited: a developer enabling docs locally must not
 # change what the suite exercises.
 os.environ["ENABLE_API_DOCS"] = "false"
+# Pinned empty so the graph client refuses to connect. Otherwise the suite
+# passes or fails depending on whether a Neo4j container happens to be running
+# on the developer's machine, which it did once. These tests cover the
+# relational fallback path; the graph path is verified against a live server
+# by scripts/verify_neo4j.py.
+os.environ["NEO4J_PASSWORD"] = ""
 
 from fastapi.testclient import TestClient
 

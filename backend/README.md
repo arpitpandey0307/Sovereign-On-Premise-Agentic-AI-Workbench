@@ -48,6 +48,15 @@ On an empty database the app seeds the five roles and one demo account
 (`admin@mrpl.local` / `workbench`). Set `SEED_DEMO_USER=false` for any
 deployment that is not the demo.
 
+The knowledge index runs separately, and the test suite pins it off so its
+results never depend on whether a container happens to be running. The graph
+path has its own check against a live server:
+
+```bash
+docker compose up -d neo4j
+python scripts/verify_neo4j.py
+```
+
 ## Database migrations
 
 `init_db()` calls `create_all()` on startup, which is enough while schemas are

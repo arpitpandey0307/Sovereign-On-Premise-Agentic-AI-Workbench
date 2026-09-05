@@ -164,10 +164,11 @@ def _vector_arm(
         diagnostics.vector_hits = len(ranked)
         return ranked
 
-    # The graph is down. Cosine over the stored vectors is O(n) rather than
-    # indexed, which is fine at MVP corpus size and honest about being slower.
+    # The graph did not answer. Cosine over the stored vectors is O(n) rather
+    # than indexed, which is fine at MVP corpus size and honest about being
+    # slower.
     diagnostics.vector_backend = "local_scan"
-    diagnostics.notes.append("graph index unreachable; scanned stored embeddings")
+    diagnostics.notes.append(_fallback_note("semantic"))
 
     scored = [
         (str(chunk.id), embeddings.cosine(vector, chunk.embedding))
@@ -198,6 +199,8 @@ def _keyword_arm(
         return ranked
 
     diagnostics.keyword_backend = "local_scan"
+    diagnostics.notes.append(_fallback_note("keyword"))
+
     terms = query_terms(query)
     tags = query_tags(query)
     if not terms and not tags:
@@ -218,6 +221,23 @@ def _keyword_arm(
     ranked = [chunk_id for chunk_id, _ in scored[:ARM_CANDIDATES]]
     diagnostics.keyword_hits = len(ranked)
     return ranked
+
+
+def _fallback_note(arm: str) -> str:
+    """Say why an arm fell back, distinguishing absence from failure.
+
+    A graph that is down is an environment the operator can fix. A graph that
+    is up while its query fails is a bug, and reporting the two identically is
+    how a broken query stays broken -- the fallback answers, so nothing looks
+    wrong.
+    """
+    status = neo4j_client.status()
+    if not status["reachable"]:
+        return f"{arm} search: graph index unreachable; used the local scan"
+    return (
+        f"{arm} search: the graph is reachable but its query failed "
+        f"({status['detail']}); used the local scan"
+    )
 
 
 # --- fusion ---------------------------------------------------------------

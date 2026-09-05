@@ -413,3 +413,74 @@ def test_knowledge_status_is_admin_only(client, auth_headers, make_user):
 
 def test_knowledge_status_is_not_published_in_the_schema(client):
     assert client.get("/openapi.json").status_code == 404
+
+
+# --- the graph client -----------------------------------------------------
+
+
+def test_cypher_parameters_named_query_do_not_collide_with_the_driver():
+    """A Cypher parameter called "query" must not bind to the driver's own arg.
+
+    It did. ``Session.run`` is ``run(query, parameters=None, **kw)``, so
+    forwarding parameters as ``**kwargs`` made every full-text search raise
+    TypeError, which the absent-tolerant wrapper reported as the graph being
+    unreachable. The keyword arm silently used the local scan instead, and
+    nothing looked broken because the fallback still answered.
+    """
+    from app.knowledge.neo4j_client import Neo4jClient
+
+    captured: dict = {}
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def run(self, query, parameters=None, **kwargs):
+            captured["cypher"] = query
+            captured["parameters"] = parameters
+            captured["kwargs"] = kwargs
+            return []
+
+    class FakeDriver:
+        def session(self, **kwargs):
+            return FakeSession()
+
+    client = Neo4jClient()
+    client._driver = FakeDriver()
+
+    assert client._run("RETURN $query", query="V-103", limit=5) == []
+    assert captured["cypher"] == "RETURN $query"
+    assert captured["parameters"] == {"query": "V-103", "limit": 5}
+    assert captured["kwargs"] == {}
+
+
+def test_a_reachable_graph_whose_query_fails_is_not_reported_as_unreachable(
+    db, corpus, monkeypatch
+):
+    """The two are different problems and must read differently.
+
+    An unreachable graph is an environment the operator fixes. A reachable
+    graph whose query fails is a bug -- and if both produce the same note, the
+    bug stays hidden behind a working fallback.
+    """
+    from app.knowledge import retrieval as retrieval_module
+
+    monkeypatch.setattr(
+        retrieval_module.neo4j_client,
+        "status",
+        lambda: {"reachable": True, "detail": "SyntaxError: bad Cypher"},
+    )
+    monkeypatch.setattr(
+        retrieval_module.neo4j_client,
+        "fulltext_search",
+        lambda *args, **kwargs: None,
+    )
+
+    result = _search(db, corpus, "V-103", ["INTERNAL"], limit=3)
+    notes = " ".join(result.diagnostics.notes)
+    assert "reachable but its query failed" in notes
+    # The search still answers -- the fallback is doing its job.
+    assert result.evidence
