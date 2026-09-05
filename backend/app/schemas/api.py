@@ -219,6 +219,11 @@ class DocumentPageResponse(BaseModel):
     ocr_status: str
     ocr_confidence: float
     needs_vision: bool
+    # What a vision model said about the page, kept apart from ``text`` so the
+    # viewer can show a description as a description and never as a quotation.
+    vision_summary: str = ""
+    vision_model: str = ""
+    vision_status: str = "not_required"
 
 
 class DocumentEntityResponse(BaseModel):

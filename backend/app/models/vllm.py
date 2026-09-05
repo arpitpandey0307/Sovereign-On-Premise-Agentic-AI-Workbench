@@ -134,3 +134,61 @@ class VLLMProvider:
             model_id=request.model_id,
             schema_satisfied=satisfied,
         )
+
+    async def embed(self, model_id: str, texts: list[str]) -> list[list[float]]:
+        """Part 03's embeddings, over vLLM's OpenAI-compatible endpoint.
+
+        Ollama had this and vLLM did not, which meant the knowledge index
+        would have quietly stopped working on the day the lab GPU box replaced
+        the laptop -- the one moment nobody wants to be debugging retrieval.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/v1/embeddings",
+                    json={"model": model_id, "input": texts},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(
+                f"embedding call failed: {exc}", model_id=model_id
+            ) from exc
+
+        # The OpenAI schema does not promise ordered data, and a reordered
+        # batch would silently attach every embedding to the wrong chunk.
+        entries = sorted(payload.get("data", []), key=lambda item: item.get("index", 0))
+        return [entry.get("embedding", []) for entry in entries]
+
+    async def rerank(
+        self, model_id: str, query: str, documents: list[str]
+    ) -> list[float]:
+        """True cross-encoder reranking, which only vLLM can serve.
+
+        Returns one relevance score per document, in the order given. Ollama
+        has no rerank endpoint at all, so Part 03 falls back to scoring
+        through a reasoning model when this provider is not present.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/rerank",
+                    json={
+                        "model": model_id,
+                        "query": query,
+                        "documents": documents,
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(
+                f"rerank call failed: {exc}", model_id=model_id
+            ) from exc
+
+        scores = [0.0] * len(documents)
+        for entry in payload.get("results", []):
+            index = entry.get("index")
+            if isinstance(index, int) and 0 <= index < len(scores):
+                scores[index] = float(entry.get("relevance_score", 0.0))
+        return scores

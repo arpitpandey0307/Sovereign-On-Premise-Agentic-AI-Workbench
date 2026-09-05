@@ -49,12 +49,30 @@ Fusion is Reciprocal Rank Fusion (`k=60`). Rankings rather than scores,
 because Neo4j's cosine similarity and its Lucene score are on unrelated
 scales — averaging them would let whichever produced larger numbers dominate.
 
-Then a lexical rerank breaks the one tie this corpus reliably produces:
-`V-103` and `V-104` are near-identical to an embedding model, so an exact
-identifier match has to win. A cross-encoder reranker is Phase 2 — it would be
-a second model resident in VRAM next to the reasoner on an 8 GB card, for
-precision the demo does not yet need. `reranker.rerank` is a pure function, so
-that swap touches nothing else.
+### Reranking
+
+Three tiers, each falling through to the next, and the diagnostics say which
+one actually ran:
+
+| tier | how | when |
+|---|---|---|
+| `cross_encoder` | vLLM's rerank endpoint | a reranking model is served |
+| `model_scored` | one structured-output call scoring the whole shortlist | a reasoning model is ready |
+| `lexical` | term coverage plus exact-tag agreement | always |
+
+The model tiers score only the top 8 candidates, in a *single* call rather
+than one per passage: N calls would put a reranker's latency on the critical
+path of every search on a laptop already holding a model in VRAM.
+
+The lexical signal is blended into every tier, never replaced by it. `V-103`
+and `V-104` are near-identical to an embedding model, and a reranking model
+that has not been told which identifier matters can still prefer a fluent
+passage about the wrong vessel — so exact-identifier agreement keeps its
+weight even when a model has an opinion.
+
+Ollama has no rerank endpoint at all (`/api/rerank` returns 404), which is why
+the cross-encoder tier is a vLLM-provider entry in the catalogue. It becomes
+live by itself the day the lab box serves it.
 
 ## Clearance filtering
 
@@ -97,6 +115,8 @@ the document row and returned by the reingest endpoint.
 |---|---|
 | Tesseract | scanned pages record no text; `ocr_status` says `unavailable` |
 | model runtime | chunks stored without vectors; search is keyword-only |
+| vision model | drawings keep their OCR text; `vision_status` says `unavailable` |
+| reranking model | the lexical rerank runs; `rerank_method` says `lexical` |
 | Neo4j | search runs on the local scan; equipment falls back to co-occurrence |
 
 `POST /api/v1/documents/reingest/{file_id}` re-runs the pipeline once the
@@ -133,3 +153,25 @@ the driver's own first argument and raised. The absent-tolerant wrapper
 reported that as the graph being unreachable, so every full-text search
 silently used the local scan and nothing looked broken. Fallback notes now
 distinguish an unreachable graph from a reachable one whose query failed.
+
+## The vision pass
+
+A P&ID is the case that motivates it. OCR of an engineering drawing returns a
+bag of tags with no structure — it will give you `V-103`, `P-12` and `FIC-101`
+while losing the one thing the drawing exists to convey, which is what
+connects to what.
+
+Pages carrying graphics and little text are flagged during extraction, and the
+flagged pages are described by a vision model through Part 02's router. What
+comes back is stored in `vision_summary`, **never merged into `page.text`**: a
+model's description of a drawing is not a quotation from it, and a citation has
+to be able to tell a reader which it is looking at. The chunker sees both, with
+the boundary marked inline, so a drawing becomes retrievable at all. Equipment
+tags are extracted from the description too — on a P&ID that is where most of
+them come from.
+
+The pass is capped at `VISION_PASS_MAX_PAGES` per document and describes the
+least-textual pages first, because a drawing gains far more from being looked
+at than a page of prose with a logo on it does. On an 8 GB card a VLM sits next
+to the reasoner, and a 200-page scan that ran a model on every page would stall
+ingestion for minutes. `ENABLE_VISION_PASS=false` turns it off entirely.

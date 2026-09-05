@@ -118,11 +118,15 @@ class ModelRegistry:
                 or identifier.split(":")[0] in normalised
             )
             record.status = "ready" if available else "unavailable"
-            record.status_detail = (
-                "present in local runtime"
-                if available
-                else f"not pulled: run `ollama pull {identifier}`"
-            )
+            # The remedy differs by runtime, and naming the wrong one sends an
+            # operator to pull an Ollama tag for a model only vLLM can serve.
+            if available:
+                detail = "present in local runtime"
+            elif record.provider == "ollama":
+                detail = f"not pulled: run `ollama pull {identifier}`"
+            else:
+                detail = f"not served by {record.provider}: {identifier}"
+            record.status_detail = detail
             outcome[record.id] = record.status
 
         self.db.commit()

@@ -11,7 +11,15 @@ from __future__ import annotations
 from typing import Annotated, BinaryIO
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Query,
+    UploadFile,
+    status,
+)
 
 from app.core.config import settings
 from app.core.dependencies import DbSession, record_audit, require
@@ -24,7 +32,7 @@ from app.core.storage import storage
 from app.db.models import User
 from app.db.repositories.files import FileRepository
 from app.integrations import registry
-from app.schemas.api import FileResponse
+from app.schemas.api import FileResponse, Page
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -143,6 +151,29 @@ def upload_file(
 
     background.add_task(_ingest, record.id)
     return FileResponse.model_validate(record)
+
+
+@router.get("", response_model=Page[FileResponse])
+def list_files(
+    user: ReadUser,
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> Page[FileResponse]:
+    """The caller's own uploads, newest first.
+
+    Distinct from ``GET /api/v1/documents``, which lists what Part 03 managed
+    to ingest. A file whose ingestion failed appears here and nowhere else,
+    which is how an operator finds it to retry.
+    """
+    records = FileRepository(db).list_for_owner(user.id)
+    window = records[offset : offset + limit]
+    return Page(
+        items=[FileResponse.model_validate(record) for record in window],
+        total=len(records),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{file_id}", response_model=FileResponse)

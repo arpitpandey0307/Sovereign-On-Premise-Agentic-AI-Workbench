@@ -26,7 +26,12 @@ from uuid import UUID
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 _tmp = Path(tempfile.mkdtemp(prefix="verify-neo4j-"))
-os.environ["DATABASE_URL"] = f"sqlite:///{(_tmp / 'verify.db').as_posix()}"
+# A throwaway SQLite database by default, so the script is safe to run against
+# a developer's working tree. Set DATABASE_URL to point it at PostgreSQL
+# instead and the same checks run in the real deployment shape.
+os.environ.setdefault(
+    "DATABASE_URL", f"sqlite:///{(_tmp / 'verify.db').as_posix()}"
+)
 os.environ["STORAGE_ROOT"] = (_tmp / "storage").as_posix()
 os.environ["SEED_DEMO_USER"] = "false"
 os.environ["REFRESH_MODEL_REGISTRY_ON_STARTUP"] = "true"
@@ -83,10 +88,16 @@ def main() -> int:
     with SessionLocal() as db:
         repo = UserRepository(db)
         repo.seed_roles()
-        repo.create(email="verify@mrpl.local", name="Verify",
-                    password="verify-password", roles=["ENGINEER"])
-        repo.create(email="verify-admin@mrpl.local", name="Verify Admin",
-                    password="verify-admin-password", roles=["ADMIN"])
+        # Idempotent: pointed at PostgreSQL rather than a throwaway SQLite
+        # file, these accounts survive the run, and a second run must not fail
+        # on a duplicate email before it has checked anything.
+        for email, name, password, roles in (
+            ("verify@mrpl.local", "Verify", "verify-password", ["ENGINEER"]),
+            ("verify-admin@mrpl.local", "Verify Admin",
+             "verify-admin-password", ["ADMIN"]),
+        ):
+            if repo.get_by_email(email) is None:
+                repo.create(email=email, name=name, password=password, roles=roles)
 
     document_id: UUID | None = None
     try:

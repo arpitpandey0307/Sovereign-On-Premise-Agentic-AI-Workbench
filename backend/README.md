@@ -86,8 +86,8 @@ POST   /api/v1/auth/logout
 POST   /api/v1/conversations          GET    /api/v1/conversations
 GET    /api/v1/conversations/{id}     POST   /api/v1/conversations/{id}/messages
 
-POST   /api/v1/files/upload           GET    /api/v1/files/{id}
-DELETE /api/v1/files/{id}
+POST   /api/v1/files/upload           GET    /api/v1/files
+GET    /api/v1/files/{id}             DELETE /api/v1/files/{id}
 
 POST   /api/v1/tasks                  GET    /api/v1/tasks
 GET    /api/v1/tasks/{id}             POST   /api/v1/tasks/{id}/cancel

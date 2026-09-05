@@ -3,9 +3,9 @@
     uploaded file
       -> detect type
       -> extract native text, or render and OCR
-      -> flag drawings and photos for a vision pass
-      -> chunk, page-aware
       -> classify (Part 05 decides the level, this module supplies the text)
+      -> vision pass over drawings and photos, capped per document
+      -> chunk, page-aware, description included
       -> embed (Part 02 picks and runs the model)
       -> write chunks and the equipment graph to Neo4j
       -> record the document in the relational store
@@ -29,13 +29,14 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import record_audit
 from app.core.storage import storage
 from app.db.models import DocumentChunk, DocumentEntity, DocumentPage
 from app.db.repositories.documents import DocumentRepository
 from app.db.repositories.files import FileRepository
 from app.documents import entities as entity_extraction
-from app.documents import ocr, parser
+from app.documents import ocr, parser, vision
 from app.documents.chunker import chunk_pages
 from app.knowledge import embeddings
 from app.knowledge.neo4j_client import neo4j_client
@@ -52,6 +53,7 @@ class IngestionReport:
     pages: int = 0
     ocr_pages: int = 0
     vision_pages: int = 0
+    vision_described: int = 0
     chunks: int = 0
     embedded: int = 0
     entities: int = 0
@@ -66,6 +68,7 @@ class IngestionReport:
             "pages": self.pages,
             "ocr_pages": self.ocr_pages,
             "vision_pages": self.vision_pages,
+            "vision_described": self.vision_described,
             "chunks": self.chunks,
             "embedded_chunks": self.embedded,
             "entities": self.entities,
@@ -106,6 +109,18 @@ def ingest_file(db: Session, file_id: UUID) -> IngestionReport:
     report.document_id = document.id
 
     pages = _resolve_pages(extraction.pages, owner_id=record.owner_id, report=report)
+    report.pages = len(pages)
+
+    # Classification is decided from the extracted text before any model sees
+    # a page: Part 05 has to be able to refuse a vision model that is not
+    # cleared for this document, which it cannot do after the fact.
+    literal_texts = [(page.page_number, page.text) for page, _, _ in pages]
+    classification, reason = _classify(document.filename, literal_texts)
+    report.classification = classification
+
+    descriptions = _vision_pass(db, extraction.pages, classification, report)
+    release_images(extraction.pages)
+
     repo.add_pages(
         [
             DocumentPage(
@@ -116,18 +131,23 @@ def ingest_file(db: Session, file_id: UUID) -> IngestionReport:
                 ocr_status=page.ocr_status,
                 ocr_confidence=confidence,
                 needs_vision=page.needs_vision,
+                vision_summary=descriptions.get(page.page_number, _NO_VISION).text,
+                vision_model=descriptions.get(page.page_number, _NO_VISION).model_id,
+                vision_status=descriptions.get(page.page_number, _NO_VISION).status,
             )
             for page, image_path, confidence in pages
         ]
     )
-    report.pages = len(pages)
 
-    page_texts = [(page.page_number, page.text) for page, _, _ in pages]
-    chunks = chunk_pages(page_texts)
+    # Chunking sees the description as well as the text, so a drawing becomes
+    # retrievable at all. The description is labelled inline so a chunk drawn
+    # from it cannot be read as a quotation from the page.
+    combined_texts = [
+        (number, _combined(text, descriptions.get(number, _NO_VISION)))
+        for number, text in literal_texts
+    ]
+    chunks = chunk_pages(combined_texts)
     report.chunks = len(chunks)
-
-    classification, reason = _classify(document.filename, page_texts)
-    report.classification = classification
 
     vectors = _embed(db, [chunk.text for chunk in chunks], classification, report)
 
@@ -148,7 +168,10 @@ def ingest_file(db: Session, file_id: UUID) -> IngestionReport:
     repo.add_chunks(rows)
     repo.set_classification(document, classification, reason)
 
-    tags = entity_extraction.extract_tags(page_texts)
+    # Tags are read from the description too. On a P&ID that is where most of
+    # them come from -- OCR of a drawing is exactly what the vision pass exists
+    # to compensate for.
+    tags = entity_extraction.extract_tags(combined_texts)
     if tags:
         repo.add_entities(
             [
@@ -197,6 +220,69 @@ def ingest_file(db: Session, file_id: UUID) -> IngestionReport:
 
 # --- stages ---------------------------------------------------------------
 
+_NO_VISION = vision.VisionResult()
+
+# The label that separates a model's description from the page's own text.
+# It survives into the chunk, so a citation drawn from a described drawing
+# reads as a description rather than as a quotation.
+VISION_MARKER = "[Vision model description of this page]"
+
+
+def _combined(text: str, described: vision.VisionResult) -> str:
+    """Page text plus any vision description, with the boundary marked."""
+    if not described.succeeded:
+        return text
+    return f"{text}\n\n{VISION_MARKER}\n{described.text}".strip()
+
+
+def _vision_pass(
+    db: Session,
+    extracted: list[parser.ExtractedPage],
+    classification: str,
+    report: IngestionReport,
+) -> dict[int, vision.VisionResult]:
+    """Describe the flagged pages worth a model call, within the budget.
+
+    Runs after OCR and after classification, and before the page rasters are
+    released. Failure here never costs the document: an undescribed drawing is
+    still an ingested drawing.
+    """
+    if not settings.enable_vision_pass:
+        return {}
+
+    chosen = vision.selected_pages(extracted)
+    if not chosen:
+        return {}
+
+    described: dict[int, vision.VisionResult] = {}
+    unavailable_noted = False
+
+    for page in chosen:
+        result = vision.describe(db, page.image, classification=classification)
+        described[page.page_number] = result
+
+        if result.succeeded:
+            report.vision_described += 1
+            continue
+        if result.status == "unavailable" and not unavailable_noted:
+            report.degraded.append(f"vision pass skipped: {result.detail}")
+            unavailable_noted = True
+            # No vision model is loaded; the remaining pages would each pay
+            # the same routing cost to reach the same answer.
+            break
+        if result.status == "failed":
+            logger.warning(
+                "vision pass failed on page %s: %s", page.page_number, result.detail
+            )
+
+    skipped = report.vision_pages - len(described)
+    if skipped > 0:
+        report.degraded.append(
+            f"{skipped} page(s) flagged for vision were not described "
+            f"(budget is {settings.vision_pass_max_pages} per document)"
+        )
+    return described
+
 
 def _resolve_pages(
     extracted: list[parser.ExtractedPage], *, owner_id: UUID, report: IngestionReport
@@ -233,11 +319,19 @@ def _resolve_pages(
             )
             report.vision_pages += 1
 
-        # The pixels are not carried past this point; only the path is.
-        page.image = None
+        # The pixels are deliberately still held here: the vision pass runs
+        # after this stage and needs them. ``release_images`` drops them once
+        # it is done, so a large scan is not carried through the rest of the
+        # pipeline in memory.
         resolved.append((page, image_path, confidence))
 
     return resolved
+
+
+def release_images(extracted: list[parser.ExtractedPage]) -> None:
+    """Drop the page rasters once nothing further needs to look at them."""
+    for page in extracted:
+        page.image = None
 
 
 def _classify(filename: str, pages: list[tuple[int, str]]) -> tuple[str, str]:

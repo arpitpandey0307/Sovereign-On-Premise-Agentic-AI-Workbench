@@ -18,9 +18,14 @@ select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4"]
 #   parser.py       -- one unrenderable page must not lose the document
 #   embeddings.py   -- indexing without vectors beats refusing the upload
 #   neo4j_client.py -- the graph being down degrades search, never fails it
+#   reranker.py     -- a reranker that fails must fall back to the lexical
+#                      ordering, never take the search down with it
+#   vision.py       -- an undescribed drawing is still an ingested drawing
 "app/api/files.py" = ["BLE001"]
 "app/integrations/stubs.py" = ["BLE001"]
 "app/documents/ocr.py" = ["BLE001"]
 "app/documents/parser.py" = ["BLE001"]
 "app/knowledge/embeddings.py" = ["BLE001"]
 "app/knowledge/neo4j_client.py" = ["BLE001"]
+"app/knowledge/reranker.py" = ["BLE001"]
+"app/documents/vision.py" = ["BLE001"]

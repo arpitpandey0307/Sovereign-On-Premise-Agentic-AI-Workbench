@@ -128,3 +128,59 @@ def test_models_endpoint_requires_auth_and_answers_without_a_runtime(
 
     body = client.get("/api/v1/models", headers=auth_headers).json()
     assert isinstance(body["models"], list)
+
+
+# --- migrations -----------------------------------------------------------
+
+
+def test_migrations_describe_the_current_models(monkeypatch):
+    """Every table the code maps must be reachable by ``alembic upgrade head``.
+
+    Part 03's tables were created only by ``create_all`` for a while, which
+    works on a dev SQLite file and fails the moment a real deployment runs
+    migrations instead. This catches that gap for the next part too.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from alembic.autogenerate import compare_metadata
+    from alembic.config import Config
+    from alembic.migration import MigrationContext
+    from sqlalchemy import create_engine
+
+    from alembic import command
+    from app.core.config import settings
+    from app.db.database import Base
+
+    with tempfile.TemporaryDirectory(prefix="alembic-check-") as tmp:
+        url = f"sqlite:///{(Path(tmp) / 'check.db').as_posix()}"
+        # alembic/env.py takes the URL from settings and overrides whatever the
+        # config carries, so the setting is what has to be redirected -- not
+        # the Config object.
+        monkeypatch.setattr(settings, "database_url", url)
+
+        config = Config("alembic.ini")
+        config.set_main_option("sqlalchemy.url", url)
+        command.upgrade(config, "head")
+
+        engine = create_engine(url)
+        try:
+            with engine.connect() as connection:
+                context = MigrationContext.configure(
+                    connection,
+                    opts={"target_metadata": Base.metadata, "compare_type": False},
+                )
+                diff = compare_metadata(context, Base.metadata)
+        finally:
+            engine.dispose()
+
+    assert diff == [], f"models and migrations have drifted: {diff}"
+
+
+def test_there_is_exactly_one_migration_head():
+    """Two heads mean two people added a migration and neither merged."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+    assert len(heads) == 1, f"expected one head, found {heads}"

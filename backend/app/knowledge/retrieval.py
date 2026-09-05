@@ -30,7 +30,13 @@ from app.db.models import Document, DocumentChunk
 from app.db.repositories.documents import DocumentRepository
 from app.knowledge import embeddings
 from app.knowledge.neo4j_client import GraphHit, neo4j_client
-from app.knowledge.reranker import Candidate, query_tags, query_terms, rerank
+from app.knowledge.reranker import (
+    Candidate,
+    query_tags,
+    query_terms,
+    rerank_with_model,
+)
+from app.routing.policies import CLASSIFICATION_ORDER
 from app.schemas.shared import Evidence
 
 logger = logging.getLogger("workbench.retrieval")
@@ -53,6 +59,10 @@ class SearchDiagnostics:
 
     vector_backend: str = "none"
     keyword_backend: str = "none"
+    # "cross_encoder" | "model_scored" | "lexical" -- which reranker actually
+    # ran, so the evidence panel never implies a model was involved when the
+    # lexical fallback did the work.
+    rerank_method: str = "none"
     vector_hits: int = 0
     keyword_hits: int = 0
     considered: int = 0
@@ -63,6 +73,7 @@ class SearchDiagnostics:
         return {
             "vector_backend": self.vector_backend,
             "keyword_backend": self.keyword_backend,
+            "rerank_method": self.rerank_method,
             "vector_hits": self.vector_hits,
             "keyword_hits": self.keyword_hits,
             "chunks_considered": self.considered,
@@ -112,14 +123,17 @@ def search(
     if not fused:
         return SearchResult(evidence=[], diagnostics=diagnostics)
 
-    ordered = rerank(
+    ordered, method = rerank_with_model(
+        db,
         query,
         [
             Candidate(chunk_id=chunk_id, text=by_id[chunk_id].text, fused_score=score)
             for chunk_id, score in fused.items()
             if chunk_id in by_id
         ],
+        classification=max(classifications, key=CLASSIFICATION_ORDER.index),
     )
+    diagnostics.rerank_method = method
 
     documents = {
         document.id: document

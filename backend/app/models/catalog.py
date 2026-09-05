@@ -103,6 +103,27 @@ _EIGHT_GB: list[CatalogEntry] = [
         "reliability_score": 0.95,
         "notes": "Cheap enough to stay resident alongside a heavyweight model.",
     },
+    {
+        "id": "rerank-bge-v2-m3",
+        "name": "BGE Reranker v2 m3 (cross-encoder)",
+        # A true cross-encoder needs a rerank endpoint. Ollama has none, so
+        # this row stays unavailable on the dev laptop and Part 03 falls back
+        # to scoring through a reasoning model. It becomes ready by itself the
+        # day vLLM serves it -- no code change, which is the point of putting
+        # it in the catalogue now rather than later.
+        "provider": "vllm",
+        "model_identifier": "BAAI/bge-reranker-v2-m3",
+        "type": "reranking",
+        "capabilities": ["reranking"],
+        "context_length": 8192,
+        "quantization": "F16",
+        "vram_required_gb": 1.2,
+        "supported_modalities": ["text"],
+        "benchmark_score": 0.88,
+        "latency_score": 0.80,
+        "reliability_score": 0.92,
+        "notes": "Retrieval precision. Requires vLLM; no Ollama equivalent.",
+    },
 ]
 
 
@@ -174,6 +195,27 @@ _SIX_GB: list[CatalogEntry] = [
         "latency_score": 0.95,
         "reliability_score": 0.95,
         "notes": "Cheap enough to stay resident alongside a heavyweight model.",
+    },
+    {
+        "id": "rerank-bge-v2-m3",
+        "name": "BGE Reranker v2 m3 (cross-encoder)",
+        # A true cross-encoder needs a rerank endpoint. Ollama has none, so
+        # this row stays unavailable on the dev laptop and Part 03 falls back
+        # to scoring through a reasoning model. It becomes ready by itself the
+        # day vLLM serves it -- no code change, which is the point of putting
+        # it in the catalogue now rather than later.
+        "provider": "vllm",
+        "model_identifier": "BAAI/bge-reranker-v2-m3",
+        "type": "reranking",
+        "capabilities": ["reranking"],
+        "context_length": 8192,
+        "quantization": "F16",
+        "vram_required_gb": 1.2,
+        "supported_modalities": ["text"],
+        "benchmark_score": 0.88,
+        "latency_score": 0.80,
+        "reliability_score": 0.92,
+        "notes": "Retrieval precision. Requires vLLM; no Ollama equivalent.",
     },
 ]
 

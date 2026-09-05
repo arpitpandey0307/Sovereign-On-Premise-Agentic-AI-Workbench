@@ -118,6 +118,14 @@ class DocumentPage(Base):
     # these get a vision pass rather than being trusted to OCR alone.
     needs_vision: Mapped[bool] = mapped_column(default=False)
 
+    # What a vision model saw on this page. Kept apart from ``text`` on
+    # purpose: ``text`` is what is literally written on the page, this is a
+    # model's description of it. Merging them would make a generated sentence
+    # indistinguishable from a quotation in a citation.
+    vision_summary: Mapped[str] = mapped_column(Text, default="")
+    vision_model: Mapped[str] = mapped_column(String(128), default="")
+    vision_status: Mapped[str] = mapped_column(String(32), default="not_required")
+
     document: Mapped[Document] = relationship(back_populates="pages")
 
 

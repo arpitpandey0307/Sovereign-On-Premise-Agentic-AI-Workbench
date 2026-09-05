@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     # explicitly when the installer did not add it there.
     tesseract_cmd: str = ""
 
+    # Vision pass (Part 03). Pages holding a drawing, a photo or a dense
+    # table get looked at by a vision model rather than trusted to OCR alone.
+    # It is capped per document because a VLM pass costs seconds and VRAM on
+    # an 8 GB card, and a 200-page scan would otherwise stall ingestion.
+    enable_vision_pass: bool = True
+    vision_pass_max_pages: int = 5
+
+    # Reranking (Part 03). A model-scored rerank improves precision but adds a
+    # model call to every search; turning it off leaves the lexical reranker,
+    # which is free and still breaks the V-103/V-104 tie.
+    enable_model_rerank: bool = True
+
     # Neo4j (Part 03). Loopback only, like every other dependency here.
     neo4j_uri: str = "bolt://127.0.0.1:7687"
     neo4j_user: str = "neo4j"

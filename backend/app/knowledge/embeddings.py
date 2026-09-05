@@ -82,7 +82,7 @@ def embed(
         for start in range(0, len(texts), BATCH_SIZE):
             batch = texts[start : start + BATCH_SIZE]
             vectors.extend(
-                _run(embed_call(record.model_identifier, batch))
+                run_sync(embed_call(record.model_identifier, batch))
             )
     except Exception as exc:
         logger.warning("embedding failed on %s: %s", record.id, exc)
@@ -104,8 +104,10 @@ def embed_query(
     return result.vectors[0] if result.succeeded else None
 
 
-def _run(coro):
+def run_sync(coro):
     """Run one coroutine from synchronous code.
+
+    Shared with the reranker, which reaches a model the same way.
 
     Ingestion runs in FastAPI's background threadpool, where there is no
     running loop, so ``asyncio.run`` is correct. Retrieval can also be called
