@@ -31,6 +31,10 @@ os.environ["ENABLE_API_DOCS"] = "false"
 # relational fallback path; the graph path is verified against a live server
 # by scripts/verify_neo4j.py.
 os.environ["NEO4J_PASSWORD"] = ""
+# The egress monitor installs a CPython audit hook, which cannot be
+# removed once added and fires on every socket operation for the rest of
+# the process. Off here; its behaviour is tested directly instead.
+os.environ["MONITOR_NETWORK_EGRESS"] = "false"
 
 from fastapi.testclient import TestClient
 

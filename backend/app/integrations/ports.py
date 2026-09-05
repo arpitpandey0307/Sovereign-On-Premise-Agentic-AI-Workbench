@@ -49,9 +49,14 @@ class PolicyPort(Protocol):
         roles: list[str],
         resource: str,
         action: str,
-        classification: str = "INTERNAL",
+        classification: str | None = None,
     ) -> tuple[bool, str]:
-        """Return ``(allowed, reason)``. A denial must always carry a reason."""
+        """Return ``(allowed, reason)``. A denial must always carry a reason.
+
+        ``classification`` is passed only when classified material is actually
+        involved. Roles govern the action; clearance governs the data, and
+        conflating them locks oversight roles out of oversight.
+        """
         ...
 
     def check_tool_allowed(

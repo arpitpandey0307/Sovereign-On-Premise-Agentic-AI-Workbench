@@ -26,76 +26,22 @@ from app.schemas.shared import (
 
 logger = logging.getLogger("workbench.stub")
 
-# Classification ordering from Part 05, section 3.
-CLASSIFICATION_ORDER = ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "HIGHLY_CONFIDENTIAL"]
+class UninstalledPolicy:
+    """Denies everything. In use only if Part 05 failed to install.
 
-# Markings and vocabulary that raise a document's sensitivity. Part 05 owns
-# the real rule set; this table exists so that classification at ingestion is
-# actually attempted rather than every document landing at one default level.
-CLASSIFICATION_MARKERS: dict[str, set[str]] = {
-    "HIGHLY_CONFIDENTIAL": {
-        "HIGHLY CONFIDENTIAL",
-        "TOP SECRET",
-        "RESTRICTED ACCESS",
-        "BOARD CONFIDENTIAL",
-        "TRADE SECRET",
-    },
-    "CONFIDENTIAL": {
-        "CONFIDENTIAL",
-        "COMMERCIAL IN CONFIDENCE",
-        "PROPRIETARY",
-        "NOT FOR CIRCULATION",
-        "P&ID",
-        "PIPING AND INSTRUMENTATION",
-        "HAZOP",
-    },
-    "PUBLIC": {
-        "FOR PUBLIC RELEASE",
-        "PUBLIC DOMAIN",
-        "UNCLASSIFIED",
-    },
-}
+    This was a permissive placeholder while Part 05 was unbuilt. Now that the
+    real engine exists, a second copy of the rules here would be a second
+    source of truth for security decisions -- and the copy that drifts is
+    always the one nobody is looking at.
 
-ROLE_MAX_CLASSIFICATION = {
-    "ENGINEER": "CONFIDENTIAL",
-    "ANALYST": "CONFIDENTIAL",
-    "MANAGER": "HIGHLY_CONFIDENTIAL",
-    "ADMIN": "HIGHLY_CONFIDENTIAL",
-    "SECURITY_ADMIN": "HIGHLY_CONFIDENTIAL",
-}
-
-
-# Which roles may perform which action on which resource. Part 05 owns the
-# real engine; this table exists so that until it lands the permission checks
-# are actually enforced rather than waved through. Anything not listed is
-# denied -- a placeholder must fail closed, not open.
-PERMISSION_MATRIX: dict[tuple[str, str], set[str]] = {
-    ("conversation", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("conversation", "write"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("file", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("document", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("document", "search"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("document", "ingest"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("file", "upload"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("file", "delete"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("task", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("task", "create"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("artifact", "download"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
-    ("model", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN", "SECURITY_ADMIN"},
-    # Operational actions that change system state, not just the caller's own
-    # data. Deliberately narrower.
-    ("model", "admin"): {"ADMIN"},
-    ("system", "read"): {"ADMIN", "SECURITY_ADMIN"},
-    ("audit", "read"): {"ADMIN", "SECURITY_ADMIN"},
-}
-
-
-class PermissivePolicy:
-    """Role-aware placeholder. Part 05 replaces this with the real engine.
-
-    Named "permissive" because its classification rules are generous, not
-    because it grants everything: unknown permissions are denied.
+    So it denies instead. If these reasons appear in a log, the policy engine
+    did not start, and denying every request is the correct way for that to be
+    noticed rather than a quiet downgrade to placeholder security.
     """
+
+    _REASON = (
+        "The policy engine is not installed, so no permission can be granted."
+    )
 
     def check_permission(
         self,
@@ -104,99 +50,33 @@ class PermissivePolicy:
         roles: list[str],
         resource: str,
         action: str,
-        classification: str = "INTERNAL",
+        classification: str | None = None,
     ) -> tuple[bool, str]:
-        if not roles:
-            return False, "User has no assigned role."
-
-        held = set(roles)
-        permitted = PERMISSION_MATRIX.get((resource, action))
-        if permitted is None:
-            # Fail closed: an unmapped permission is a bug, and guessing in
-            # the caller's favour is how privilege escalation happens.
-            return False, f"No policy defines {resource}:{action}."
-        if not held & permitted:
-            return False, (
-                f"{resource}:{action} requires one of "
-                f"{sorted(permitted)}; caller holds {sorted(held)}."
-            )
-
-        ceiling = max(
-            (ROLE_MAX_CLASSIFICATION.get(role, "PUBLIC") for role in held),
-            key=CLASSIFICATION_ORDER.index,
-        )
-        if CLASSIFICATION_ORDER.index(classification) > CLASSIFICATION_ORDER.index(
-            ceiling
-        ):
-            return False, (
-                f"Roles {sorted(held)} are cleared to {ceiling}, "
-                f"which is below {classification}."
-            )
-        return True, "allowed"
+        logger.error("policy check reached the uninstalled placeholder")
+        return False, self._REASON
 
     def check_tool_allowed(
         self, tool: ToolDescriptor, roles: list[str], classification: str
     ) -> tuple[bool, str]:
-        if classification == "HIGHLY_CONFIDENTIAL" and tool.risk_level == "high":
-            return False, "High-risk tools are barred at HIGHLY_CONFIDENTIAL."
-        return True, "allowed"
+        logger.error("tool check reached the uninstalled placeholder")
+        return False, self._REASON
 
     def check_model_allowed(
         self, model: ModelDescriptor, *, classification: str
     ) -> tuple[bool, str]:
-        level = classification.upper()
-
-        # An explicit approval list on the model always wins. An empty list
-        # means "not yet classified by Part 05", not "approved for nothing".
-        approved = {value.upper() for value in model.approved_for}
-        if approved and level not in approved:
-            return False, f"not approved for {level} (approved: {sorted(approved)})"
-
-        # The rule that matters on this system, stated even though every model
-        # here is local: confidential data never reaches a remote model.
-        if level in {"CONFIDENTIAL", "HIGHLY_CONFIDENTIAL"} and model.status != "ready":
-            return False, f"model is {model.status}; {level} work needs a ready model"
-
-        return True, f"permitted at {level}"
+        return False, self._REASON
 
     def classify_document(self, *, filename: str, text: str) -> tuple[str, str]:
-        """Keyword classification, standing in for Part 05's rule engine.
-
-        The default is INTERNAL, never PUBLIC. An unmarked document on this
-        system is one nobody has reviewed yet, and treating it as publishable
-        is the failure mode that matters: PUBLIC has to be claimed explicitly.
-        """
-        haystack = f"{filename} {text}".upper()
-
-        for level in ("HIGHLY_CONFIDENTIAL", "CONFIDENTIAL"):
-            hits = [
-                marker for marker in CLASSIFICATION_MARKERS[level] if marker in haystack
-            ]
-            if hits:
-                return level, f"matched {', '.join(sorted(hits)[:3])}"
-
-        if any(marker in haystack for marker in CLASSIFICATION_MARKERS["PUBLIC"]):
-            return "PUBLIC", "explicitly marked for public release"
-
-        return "INTERNAL", "no sensitivity marking found; defaulted to INTERNAL"
+        # The one method that cannot refuse: ingestion has to label the
+        # document as something. The most sensitive level is the safe answer.
+        logger.error("classification reached the uninstalled placeholder")
+        return "HIGHLY_CONFIDENTIAL", (
+            "the policy engine is not installed; defaulted to the most "
+            "restrictive level"
+        )
 
     def readable_classifications(self, roles: list[str]) -> list[str]:
-        """Levels at or below the highest clearance these roles carry."""
-        held = set(roles)
-        if not held:
-            return []
-
-        known = held & set(ROLE_MAX_CLASSIFICATION)
-        if not known:
-            # An unrecognised role reads nothing. Guessing a clearance for a
-            # role the policy engine has never heard of is how data leaks.
-            return []
-
-        ceiling = max(
-            (ROLE_MAX_CLASSIFICATION[role] for role in known),
-            key=CLASSIFICATION_ORDER.index,
-        )
-        return CLASSIFICATION_ORDER[: CLASSIFICATION_ORDER.index(ceiling) + 1]
+        return []
 
 
 class InMemoryAudit:

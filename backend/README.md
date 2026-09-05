@@ -60,6 +60,7 @@ python scripts/verify_neo4j.py     # the graph index, against a live server
 python scripts/verify_sandbox.py   # sandbox confinement, against real Docker
 python scripts/verify_vision.py    # the vision pass, against a real model
 python scripts/verify_hero.py      # the demo workflow, end to end
+python scripts/verify_sovereignty.py  # zero external calls, provably watched
 ```
 
 ## Database migrations
@@ -105,6 +106,13 @@ GET    /api/v1/tasks/{id}/execution   -- the orchestrator's own trace
 GET    /api/v1/tasks/{id}/artifacts   -- what the task produced
 GET    /api/v1/tools                  -- the tool catalogue and its risks
 GET    /internal/sandbox/status       -- code execution and its confinement
+
+GET    /api/v1/security/status        -- policy in force and egress observed
+GET    /api/v1/security/sovereignty   -- the network monitor widget
+GET    /api/v1/security/network-events-- external attempts actually seen
+GET    /api/v1/security/audit         -- the audit log viewer
+GET    /api/v1/security/permissions   -- what the calling user may do
+GET    /api/v1/tasks/{id}/receipt     -- the task receipt, from the ledger
 
 GET    /api/v1/documents              -- the knowledge-base list
 GET    /api/v1/documents/{id}         -- one document, its pages and its tags
@@ -162,12 +170,14 @@ Nothing else in Part 01 changes when a real implementation lands.
 | `KnowledgePort` | Part 03 | **live** — `KnowledgeService`, hybrid retrieval |
 | `OrchestratorPort` | Part 04 | **live** — `LangGraphOrchestrator` |
 | `ArtifactsPort` | Part 04 | **live** — `ArtifactStore` |
-| `PolicyPort` | Part 05 | `PermissivePolicy` — role → classification ceiling |
-| `AuditPort` | Part 05 | `InMemoryAudit` |
+| `PolicyPort` | Part 05 | **live** — `PolicyEngine` |
+| `AuditPort` | Part 05 | **live** — `AuditLedger`, append-only |
 
-No placeholder fabricates model output. `EchoOrchestrator` walks the real
-status machine and emits the event names Part 04 will emit, so the frontend
-timeline is buildable before LangGraph exists.
+Every port is now served by its real implementation. The placeholders remain
+for reference, and the policy placeholder was changed to **deny everything**
+once Part 05 landed: a second copy of the security rules would be a second
+source of truth, and if those denials appear in a log the policy engine did
+not start — which should be loud, not a quiet downgrade.
 
 
 ## The model layer (Part 02)

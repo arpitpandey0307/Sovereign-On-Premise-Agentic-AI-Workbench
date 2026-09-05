@@ -58,9 +58,9 @@ def test_an_unmapped_permission_fails_closed():
     """A permission nobody defined must be denied, not waved through."""
     from uuid import uuid4
 
-    from app.integrations.stubs import PermissivePolicy
+    from app.security.policy_engine import policy_engine
 
-    allowed, reason = PermissivePolicy().check_permission(
+    allowed, reason = policy_engine.check_permission(
         user_id=uuid4(),
         roles=["ADMIN"],
         resource="nuclear_launch",
@@ -318,15 +318,15 @@ def test_retrieval_is_capped_at_the_callers_clearance(client, make_user, db):
 
 def test_the_classifier_never_defaults_a_document_to_public(client, make_user):
     """An unmarked document is unreviewed, not publishable."""
-    from app.integrations.stubs import PermissivePolicy
+    from app.security.policy_engine import policy_engine
 
-    level, reason = PermissivePolicy().classify_document(
+    level, reason = policy_engine.classify_document(
         filename="notes.txt", text="Routine shift handover notes."
     )
     assert level == "INTERNAL"
     assert reason
 
-    marked, _ = PermissivePolicy().classify_document(
+    marked, _ = policy_engine.classify_document(
         filename="board.pdf", text="HIGHLY CONFIDENTIAL - board circulation only"
     )
     assert marked == "HIGHLY_CONFIDENTIAL"
@@ -429,3 +429,122 @@ def test_a_task_cannot_read_an_input_it_was_not_given(client, auth_headers):
     result = gateway.call("file.read", {"file_id": str(owned_elsewhere)}, context)
     assert not result.ok
     assert "not one of this task's inputs" in result.error
+
+
+# --- Part 05: the security dashboard, audit log and sovereignty -----------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/security/status",
+        "/api/v1/security/sovereignty",
+        "/api/v1/security/network-events",
+        "/api/v1/security/audit",
+        "/api/v1/security/permissions",
+        "/api/v1/tasks/00000000-0000-0000-0000-000000000001/receipt",
+    ],
+)
+def test_no_security_route_is_anonymous(client, path):
+    assert client.get(path).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/security/status",
+        "/api/v1/security/sovereignty",
+        "/api/v1/security/network-events",
+        "/api/v1/security/audit",
+    ],
+)
+def test_the_security_dashboard_is_oversight_only(client, make_user, path):
+    """It describes how the system is defended, and who did what."""
+    engineer, password = make_user(roles=["ENGINEER"])
+    headers = {"Authorization": f"Bearer {_token(client, engineer, password)}"}
+    assert client.get(path, headers=headers).status_code == 403
+
+    admin, admin_password = make_user(roles=["SECURITY_ADMIN"])
+    admin_headers = {
+        "Authorization": f"Bearer {_token(client, admin, admin_password)}"
+    }
+    assert client.get(path, headers=admin_headers).status_code == 200
+
+
+def test_the_sovereignty_widget_says_whether_it_is_actually_watching(
+    client, make_user
+):
+    """Zero external calls from a monitor that is not running is not evidence."""
+    admin, password = make_user(roles=["SECURITY_ADMIN"])
+    headers = {"Authorization": f"Bearer {_token(client, admin, password)}"}
+
+    body = client.get("/api/v1/security/sovereignty", headers=headers).json()
+    assert "monitoring" in body
+    assert body["network_egress"] in {"BLOCKED", "BREACHED"}
+    assert body["how_it_is_enforced"]
+
+
+def test_a_user_can_read_their_own_permissions(client, auth_headers):
+    body = client.get("/api/v1/security/permissions", headers=auth_headers).json()
+    assert body["roles"] == ["ENGINEER"]
+    assert body["clearance"] == "CONFIDENTIAL"
+    assert "HIGHLY_CONFIDENTIAL" not in body["readable_classifications"]
+
+
+def test_a_receipt_is_readable_by_the_task_owner(client, auth_headers):
+    conversation = client.post(
+        "/api/v1/conversations", headers=auth_headers, json={"title": "t"}
+    ).json()
+    created = client.post(
+        "/api/v1/tasks",
+        headers=auth_headers,
+        json={
+            "conversation_id": conversation["id"],
+            "request_text": "Write an approval note",
+            "task_type": "general",
+        },
+    ).json()
+
+    receipt = client.get(
+        f"/api/v1/tasks/{created['task_id']}/receipt", headers=auth_headers
+    )
+    assert receipt.status_code == 200
+    body = receipt.json()
+    # The line the whole system exists to be able to print truthfully.
+    assert body["external_calls"] == 0
+    assert body["sovereignty"] == "INTACT"
+    assert body["events_recorded"] >= 1
+
+
+def test_another_users_receipt_is_not_readable(client, auth_headers, make_user):
+    conversation = client.post(
+        "/api/v1/conversations", headers=auth_headers, json={"title": "t"}
+    ).json()
+    created = client.post(
+        "/api/v1/tasks",
+        headers=auth_headers,
+        json={
+            "conversation_id": conversation["id"],
+            "request_text": "Write an approval note",
+            "task_type": "general",
+        },
+    ).json()
+
+    other, password = make_user()
+    other_headers = {"Authorization": f"Bearer {_token(client, other, password)}"}
+    response = client.get(
+        f"/api/v1/tasks/{created['task_id']}/receipt", headers=other_headers
+    )
+    assert response.status_code == 404
+
+
+def test_the_audit_log_records_a_denied_permission(client, make_user):
+    """A denial has to leave a trace, or the ledger only shows what worked."""
+    from app.audit.ledger import audit_ledger
+
+    engineer, password = make_user(roles=["ENGINEER"])
+    headers = {"Authorization": f"Bearer {_token(client, engineer, password)}"}
+    assert client.post("/internal/models/refresh", headers=headers).status_code == 403
+
+    events, _ = audit_ledger.recent(limit=50, event_type="PERMISSION_DENIED")
+    assert any(event.user_id == engineer.id for event in events)

@@ -17,7 +17,7 @@ from app.integrations.ports import (
     PolicyPort,
 )
 
-_policy: PolicyPort = stubs.PermissivePolicy()
+_policy: PolicyPort = stubs.UninstalledPolicy()
 _audit: AuditPort = stubs.InMemoryAudit()
 _documents: DocumentsPort = stubs.NoopDocuments()
 _knowledge: KnowledgePort = stubs.EmptyKnowledge()

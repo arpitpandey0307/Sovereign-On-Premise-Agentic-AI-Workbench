@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import knowledge as knowledge_api
 from app.api import models as models_api
 from app.api import orchestration as orchestration_api
+from app.api import security as security_api
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.dependencies import require
@@ -30,6 +31,7 @@ from app.integrations import registry
 from app.models import port as model_port
 from app.models.service import model_service
 from app.orchestration import executor as orchestration
+from app.security import port as security_port
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -69,6 +71,11 @@ def _bootstrap() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Part 05 goes first, deliberately. Every other part consults the policy
+    # engine and writes to the audit ledger, so installing it last would mean
+    # the first requests of a process were checked by a placeholder.
+    security_port.install(monitor_network=settings.monitor_network_egress)
+
     _bootstrap()
 
     # Part 02 takes over the model port, then seeds its catalogue against
@@ -138,6 +145,7 @@ app.include_router(api_router)
 app.include_router(models_api.router)
 app.include_router(knowledge_api.router)
 app.include_router(orchestration_api.router)
+app.include_router(security_api.router)
 
 
 def _part_status(port: object) -> str:

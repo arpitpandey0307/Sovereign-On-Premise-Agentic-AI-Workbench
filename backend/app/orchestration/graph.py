@@ -30,6 +30,7 @@ from app.artifacts.content import ApprovalNoteContent
 from app.artifacts.store import artifact_store
 from app.artifacts.validator import validate_docx, validate_opens
 from app.core.config import settings
+from app.core.dependencies import record_audit
 from app.core.events import event_bus
 from app.db.database import SessionLocal
 from app.integrations import registry
@@ -165,13 +166,22 @@ def retrieve(state: TaskState) -> dict:
     )
     sources = result.data.get("results", []) if result.ok else []
 
+    documents = sorted({item["document_name"] for item in sources})
     _emit(
         state,
         "retrieval_completed",
-        {
-            "results": len(sources),
-            "documents": sorted({item["document_name"] for item in sources}),
-        },
+        {"results": len(sources), "documents": documents},
+    )
+    # Written to the ledger as well as the stream: the stream is for the live
+    # timeline and is discarded, the ledger is what the task receipt is built
+    # from afterwards.
+    record_audit(
+        event_type="KNOWLEDGE_RETRIEVED",
+        action="knowledge:search",
+        component="orchestrator",
+        user_id=UUID(state["user_id"]),
+        task_id=UUID(state["task_id"]),
+        metadata={"results": len(sources), "documents": documents},
     )
     return {
         "retrieved_sources": sources,
@@ -209,6 +219,18 @@ def reason(state: TaskState) -> dict:
         state,
         "model_selected",
         {"model_id": model_id, "purpose": "approval note drafting"},
+    )
+    record_audit(
+        event_type="MODEL_SELECTED",
+        action="model:route",
+        component="orchestrator",
+        user_id=UUID(state["user_id"]),
+        task_id=UUID(state["task_id"]),
+        metadata={
+            "selected": model_id,
+            "purpose": "approval note drafting",
+            "classification": state.get("classification", "INTERNAL"),
+        },
     )
     _emit(
         state,
@@ -292,6 +314,18 @@ def generate_artifact(state: TaskState) -> dict:
         state,
         "artifact_generated",
         {
+            "artifact_id": artifact_id,
+            "filename": result.data["filename"],
+            "attempt": attempt,
+        },
+    )
+    record_audit(
+        event_type="ARTIFACT_GENERATED",
+        action="artifact:generate",
+        component="orchestrator",
+        user_id=UUID(state["user_id"]),
+        task_id=UUID(state["task_id"]),
+        metadata={
             "artifact_id": artifact_id,
             "filename": result.data["filename"],
             "attempt": attempt,

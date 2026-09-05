@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # construction; this switch is for a host with no Docker at all.
     enable_code_sandbox: bool = True
 
+    # Sovereignty monitoring (Part 05). The audit hook cannot be removed
+    # once installed -- which is the right property for a monitor, and the
+    # reason the suite needs a way not to install it in the first place.
+    monitor_network_egress: bool = True
+
     # Neo4j (Part 03). Loopback only, like every other dependency here.
     neo4j_uri: str = "bolt://127.0.0.1:7687"
     neo4j_user: str = "neo4j"
