@@ -85,6 +85,10 @@ alembic check                              # fail if models drift from migration
 
 ## Tests and linting
 
+`docs/testing.md` is the full runbook: what to run, in what order, what
+good looks like, and how to check the refusals rather than only the happy
+path.
+
 ```bash
 pytest -q
 ruff check app tests
