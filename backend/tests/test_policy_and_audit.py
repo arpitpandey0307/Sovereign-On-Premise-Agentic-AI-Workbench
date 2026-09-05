@@ -471,3 +471,30 @@ def test_persisting_an_attempt_cannot_recurse(monkeypatch):
     # The outer attempt and the one its own write provoked, and then it stops:
     # the second call finds the guard set and returns without persisting.
     assert monitor.snapshot().external_connections == 2
+
+
+def test_every_event_type_written_is_also_declared():
+    """The declared list is the dashboard's filter menu.
+
+    An event type that is written but not listed is one nobody can filter
+    for, which is how a whole category of activity becomes invisible in the
+    audit viewer without anyone noticing.
+    """
+    import pathlib
+    import re
+
+    from app.audit.events import EVENT_TYPES
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    written: set[str] = set()
+    for source in root.rglob("*.py"):
+        text = source.read_text(encoding="utf-8")
+        written.update(re.findall(r'event_type="([A-Z_]+)"', text))
+        written.update(re.findall(r'"([A-Z_]+)" if .* else "([A-Z_]+)"', text) and [])
+        for first, second in re.findall(
+            r'event_type=\s*"([A-Z_]+)" if [^\n]*? else "([A-Z_]+)"', text
+        ):
+            written.update({first, second})
+
+    undeclared = sorted(written - set(EVENT_TYPES))
+    assert undeclared == [], f"written but not declared: {undeclared}"

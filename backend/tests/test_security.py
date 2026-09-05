@@ -363,6 +363,32 @@ def test_the_sandbox_status_is_admin_only(client, make_user):
     assert response.json()["confinement"]["network"] == "none"
 
 
+def test_the_route_walker_sees_the_whole_application(client):
+    """Guard the guard.
+
+    FastAPI keeps included routers as wrappers rather than flattening them
+    into ``app.routes``, so a loop over ``app.routes`` finds six endpoints out
+    of nearly fifty -- and a security test written that way passes without
+    looking at anything. This pins that the walker still works, so the tests
+    built on it cannot go quietly blind.
+    """
+    from app.api.routes import iter_routes
+    from app.main import app
+
+    routes = iter_routes(app)
+    assert len(routes) > 40, f"only {len(routes)} routes found; the walker is blind"
+
+    paths = {path for _, path, _ in routes}
+    for expected in (
+        "/api/v1/auth/login",
+        "/api/v1/tasks",
+        "/api/v1/files/upload",
+        "/api/v1/knowledge/search",
+        "/api/v1/security/audit",
+    ):
+        assert expected in paths, f"{expected} missing from {sorted(paths)[:10]}"
+
+
 def test_there_is_no_endpoint_that_runs_a_tool(client):
     """Tool execution must only ever be reachable through the orchestrator.
 
@@ -370,16 +396,33 @@ def test_there_is_no_endpoint_that_runs_a_tool(client):
     skips the policy check, the audit record and the trace event -- all three
     of which live in the gateway.
     """
+    from app.api.routes import iter_routes
     from app.main import app
 
     invoking = [
-        route.path
-        for route in app.routes
-        if getattr(route, "methods", None)
-        and "POST" in route.methods
-        and "/tools" in route.path
+        f"{method} {path}"
+        for method, path, _ in iter_routes(app)
+        if method in {"POST", "PUT", "PATCH"} and "/tools" in path
     ]
-    assert invoking == []
+    assert invoking == [], f"a tool-invoking endpoint exists: {invoking}"
+
+
+def test_every_internal_route_is_hidden_from_the_schema(client):
+    """Operational routes must not appear in a published schema.
+
+    The schema is a map of the system. Internal routes describe how it is run,
+    so they are opt-out of it by convention -- and this checks the convention
+    actually held for every one of them.
+    """
+    from app.api.routes import iter_routes
+    from app.main import app
+
+    leaking = [
+        f"{method} {path}"
+        for method, path, in_schema in iter_routes(app)
+        if path.startswith("/internal/") and in_schema
+    ]
+    assert leaking == [], f"internal routes in the schema: {leaking}"
 
 
 def test_another_users_task_execution_is_not_readable(client, auth_headers, make_user):

@@ -229,7 +229,7 @@ class EgressMonitor:
         self._recording.busy = True
         try:
             from app.db.database import SessionLocal
-            from app.db.models.audit import NetworkEvent
+            from app.db.models.audit import AuditEventRecord, NetworkEvent
 
             with SessionLocal() as db:
                 db.add(
@@ -240,6 +240,19 @@ class EgressMonitor:
                         kind=kind,
                         scope="external",
                         detail="observed by the in-process egress monitor",
+                    )
+                )
+                # Also into the ledger. The dedicated table is what the
+                # sovereignty widget counts; the ledger is what a reviewer
+                # reads end to end, and the one event that must never be
+                # missing from it is this one.
+                db.add(
+                    AuditEventRecord(
+                        task_id=task_id,
+                        event_type="EXTERNAL_CALL_ATTEMPTED",
+                        component="sovereignty",
+                        action=f"network:{kind}",
+                        event_metadata={"host": host[:255], "port": port},
                     )
                 )
                 db.commit()

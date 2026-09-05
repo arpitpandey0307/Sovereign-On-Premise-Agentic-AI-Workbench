@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from app.core.dependencies import record_audit
 from app.sandbox.base import SandboxRequest
 from app.sandbox.docker_runner import docker_sandbox
 from app.tools import workspace
@@ -66,6 +67,26 @@ class PythonExecuteTool:
                 files[str(name)] = workspace.read(context.task_id, str(name))
             except workspace.WorkspaceError as exc:
                 return ToolResult.failed(str(exc))
+
+        # Recorded before the run, not after: if the sandbox hangs or the
+        # process dies mid-execution, the ledger still shows that code was
+        # submitted. An event written only on success would hide exactly the
+        # runs worth investigating.
+        record_audit(
+            event_type="SANDBOX_STARTED",
+            action="sandbox:execute",
+            component="sandbox",
+            user_id=context.user_id,
+            task_id=context.task_id,
+            metadata={
+                "runner": docker_sandbox.name,
+                "language": "python",
+                "code_bytes": len(code),
+                "input_files": sorted(files),
+                "timeout_s": timeout,
+                "network": "none",
+            },
+        )
 
         result = docker_sandbox.run(
             SandboxRequest(code=code, files=files, timeout_s=timeout)

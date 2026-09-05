@@ -8,6 +8,7 @@ services:
     # Bound to loopback: the database is reachable from this host only.
     ports:
       - "127.0.0.1:5432:5432"
+    networks: [sovereign]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,6 +36,7 @@ services:
       # loopback for local inspection only.
       - "127.0.0.1:7687:7687"
       - "127.0.0.1:7474:7474"
+    networks: [sovereign]
     volumes:
       - neo4j_data:/data
     healthcheck:
@@ -62,6 +64,13 @@ services:
       # The model runtime stays on the host: it needs the GPU, and passing a
       # card into a container is a deployment concern, not an MVP one.
       OLLAMA_BASE_URL: http://host.docker.internal:11434
+    # Two networks on purpose. Everything this service needs -- Postgres,
+    # Neo4j -- is on the internal one, which Docker gives no default route, so
+    # those containers cannot reach the internet even if something in them
+    # tried. The api also sits on a second network solely to reach the model
+    # runtime on the host; constraining *that* is the host firewall's job,
+    # and the in-process egress monitor is what proves nothing used it.
+    networks: [sovereign, runtime]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -71,6 +80,17 @@ services:
 
 # MinIO (Part 04) is added by that part. Nothing here is exposed beyond the
 # host: the workbench makes no outbound network calls by design.
+
+networks:
+  # internal: true removes the default route. A container on this network has
+  # no path off the host at all -- not a firewall rule that could be relaxed,
+  # an absent route. Part 05 section 6 asks for default-deny outbound on the
+  # network the AI services run in; this is that.
+  sovereign:
+    internal: true
+  # The api's path to the model runtime on the host, and nothing else on it.
+  runtime:
+    driver: bridge
 
 volumes:
   postgres_data:
