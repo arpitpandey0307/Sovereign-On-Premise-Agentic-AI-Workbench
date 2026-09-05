@@ -9,9 +9,18 @@ select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4"]
 # before any application module is imported.
 "tests/conftest.py" = ["E402"]
 
-# Three places catch broadly on purpose, each to stop a non-critical failure
+# These modules catch broadly on purpose, each to stop a non-critical failure
 # from taking down the request that triggered it:
-#   files.py      -- a failed ingestion must not fail the upload
-#   stubs.py      -- probing the local model runtime must never raise
+#   files.py        -- a failed ingestion must not fail the upload
+#   stubs.py        -- probing the local model runtime must never raise
+#   ocr.py          -- Tesseract is an external binary; absence is a
+#                      degraded mode, not a crash
+#   parser.py       -- one unrenderable page must not lose the document
+#   embeddings.py   -- indexing without vectors beats refusing the upload
+#   neo4j_client.py -- the graph being down degrades search, never fails it
 "app/api/files.py" = ["BLE001"]
 "app/integrations/stubs.py" = ["BLE001"]
+"app/documents/ocr.py" = ["BLE001"]
+"app/documents/parser.py" = ["BLE001"]
+"app/knowledge/embeddings.py" = ["BLE001"]
+"app/knowledge/neo4j_client.py" = ["BLE001"]

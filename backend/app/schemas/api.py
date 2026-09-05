@@ -185,3 +185,77 @@ class ArtifactResponse(BaseModel):
     type: str
     validation_status: str
     download_url: str
+
+
+# --- documents and knowledge (Part 03) ------------------------------------
+
+
+class DocumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    file_id: UUID
+    filename: str
+    mime_type: str
+    kind: str
+    classification: str
+    classification_reason: str
+    version: int
+    status: str
+    page_count: int
+    chunk_count: int
+    indexed_in_graph: bool
+    ingest_error: str
+    created_at: datetime
+
+
+class DocumentPageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    page_number: int
+    text: str
+    # How the text was obtained. The viewer shows this so a reader knows
+    # whether a quotation came from a text layer or from an OCR guess.
+    ocr_status: str
+    ocr_confidence: float
+    needs_vision: bool
+
+
+class DocumentEntityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tag: str
+    entity_type: str
+    page: int
+    occurrences: int
+
+
+class DocumentDetailResponse(DocumentResponse):
+    pages: list[DocumentPageResponse] = []
+    entities: list[DocumentEntityResponse] = []
+
+
+class EvidenceResponse(BaseModel):
+    """The citation contract from ``schemas/shared.py``, on the wire."""
+
+    document_id: UUID
+    document_name: str
+    page: int
+    section: str | None = None
+    text: str
+    score: float
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=5, ge=1, le=25)
+    # Narrow the search to specific documents, for "ask about this file".
+    document_ids: list[UUID] = Field(default_factory=list)
+
+
+class SearchResponse(BaseModel):
+    query: str
+    evidence: list[EvidenceResponse]
+    # Which backend answered, what was filtered, and why -- this is what makes
+    # a retrieval result auditable rather than a black box.
+    diagnostics: dict

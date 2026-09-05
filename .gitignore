@@ -49,12 +49,14 @@ id_rsa*
 .npmrc
 .pypirc
 
-# Model weights and large local artifacts
+# Model weights and large local artifacts. Anchored to the repository root:
+# a bare "models/" also matched backend/app/db/models/, which silently kept
+# source files out of the repository.
 *.gguf
 *.safetensors
 *.bin
-models/
-ollama/
+/models/
+/ollama/
 
 # Uploaded documents and generated artifacts (may contain confidential data)
 artifacts/

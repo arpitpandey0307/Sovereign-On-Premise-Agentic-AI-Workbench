@@ -223,3 +223,110 @@ def test_weak_jwt_secret_is_refused_outside_debug():
             debug=False,
             _env_file=None,
         )
+
+
+# --- Part 03: documents and knowledge -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/v1/documents"),
+        ("GET", "/api/v1/documents/00000000-0000-0000-0000-000000000001"),
+        ("GET", "/api/v1/documents/00000000-0000-0000-0000-000000000001/pages/1"),
+        ("POST", "/api/v1/documents/reingest/00000000-0000-0000-0000-000000000001"),
+        ("POST", "/api/v1/knowledge/search"),
+        ("GET", "/api/v1/knowledge/equipment/V-103"),
+        ("GET", "/internal/knowledge/status"),
+    ],
+)
+def test_no_knowledge_route_is_anonymous(client, method, path):
+    """The corpus is confidential industrial work. None of it is public."""
+    response = client.request(method, path, json={"query": "V-103"})
+    assert response.status_code == 401
+
+
+def test_retrieval_is_capped_at_the_callers_clearance(client, make_user, db):
+    """An ENGINEER must not retrieve text above their clearance.
+
+    Planted directly rather than ingested, because the point is the retrieval
+    filter and not what a given user is able to upload.
+    """
+    from uuid import uuid4
+
+    from app.db.models import Document, DocumentChunk
+
+    engineer, password = make_user(roles=["ENGINEER"])
+    manager, manager_password = make_user(roles=["MANAGER"])
+
+    document = Document(
+        id=uuid4(),
+        file_id=uuid4(),
+        owner_id=engineer.id,
+        filename="Board Review.pdf",
+        mime_type="application/pdf",
+        checksum="9" * 64,
+        storage_path="unused",
+        classification="HIGHLY_CONFIDENTIAL",
+        kind="pdf_text",
+        status="active",
+    )
+    db.add(document)
+    db.flush()
+    db.add(
+        DocumentChunk(
+            document_id=document.id,
+            ordinal=0,
+            page=1,
+            text="Valve V-999 replacement deferred pending board approval.",
+            classification="HIGHLY_CONFIDENTIAL",
+            char_count=56,
+        )
+    )
+    db.commit()
+
+    engineer_headers = {
+        "Authorization": f"Bearer {_token(client, engineer, password)}"
+    }
+    blocked = client.post(
+        "/api/v1/knowledge/search",
+        headers=engineer_headers,
+        json={"query": "V-999 board approval", "limit": 10},
+    ).json()
+    assert all(
+        item["document_id"] != str(document.id) for item in blocked["evidence"]
+    )
+    assert (
+        "HIGHLY_CONFIDENTIAL"
+        not in blocked["diagnostics"]["classifications_allowed"]
+    )
+
+    # The same query as a MANAGER returns it, which proves the filter is a
+    # clearance check rather than the search simply finding nothing.
+    manager_headers = {
+        "Authorization": f"Bearer {_token(client, manager, manager_password)}"
+    }
+    allowed = client.post(
+        "/api/v1/knowledge/search",
+        headers=manager_headers,
+        json={"query": "V-999 board approval", "limit": 10},
+    ).json()
+    assert any(
+        item["document_id"] == str(document.id) for item in allowed["evidence"]
+    )
+
+
+def test_the_classifier_never_defaults_a_document_to_public(client, make_user):
+    """An unmarked document is unreviewed, not publishable."""
+    from app.integrations.stubs import PermissivePolicy
+
+    level, reason = PermissivePolicy().classify_document(
+        filename="notes.txt", text="Routine shift handover notes."
+    )
+    assert level == "INTERNAL"
+    assert reason
+
+    marked, _ = PermissivePolicy().classify_document(
+        filename="board.pdf", text="HIGHLY CONFIDENTIAL - board circulation only"
+    )
+    assert marked == "HIGHLY_CONFIDENTIAL"

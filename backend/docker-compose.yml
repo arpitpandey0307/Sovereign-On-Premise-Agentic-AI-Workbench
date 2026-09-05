@@ -16,24 +16,63 @@ services:
       timeout: 3s
       retries: 10
 
+  neo4j:
+    # Part 03's vector index and the P&ID equipment graph. Community edition
+    # carries the vector index, so no enterprise licence is needed.
+    image: neo4j:5.26-community
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in a .env file next to this compose file}
+      # Sized for a laptop running a model alongside it. Raise both on the
+      # lab GPU box, where the corpus is larger and VRAM is not the constraint.
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512M
+      # Nothing in this system phones home, and the usage report is an
+      # outbound call. Off, or the sovereignty claim is not true.
+      NEO4J_server_config_strict__validation_enabled: "false"
+      NEO4J_dbms_usage__report_enabled: "false"
+    ports:
+      # 7687 is Bolt (the driver). 7474 is the browser UI, published on
+      # loopback for local inspection only.
+      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:7474:7474"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
   api:
     build: .
     depends_on:
       postgres:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sih}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sih}
       STORAGE_ROOT: /data/storage
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in a .env file next to this compose file}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      # The model runtime stays on the host: it needs the GPU, and passing a
+      # card into a container is a deployment concern, not an MVP one.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - storage_data:/data/storage
 
-# Neo4j (Part 03), MinIO (Part 04) and the model runtime (Part 02) are added
-# by those parts. Nothing here is exposed beyond the host: the workbench makes
-# no outbound network calls by design.
+# MinIO (Part 04) is added by that part. Nothing here is exposed beyond the
+# host: the workbench makes no outbound network calls by design.
 
 volumes:
   postgres_data:
   storage_data:
+  neo4j_data:

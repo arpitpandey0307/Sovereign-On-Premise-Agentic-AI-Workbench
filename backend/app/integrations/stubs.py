@@ -19,6 +19,7 @@ from app.core.events import event_bus
 from app.schemas.shared import (
     Artifact,
     AuditEvent,
+    Evidence,
     ModelDescriptor,
     ToolDescriptor,
 )
@@ -27,6 +28,33 @@ logger = logging.getLogger("workbench.stub")
 
 # Classification ordering from Part 05, section 3.
 CLASSIFICATION_ORDER = ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "HIGHLY_CONFIDENTIAL"]
+
+# Markings and vocabulary that raise a document's sensitivity. Part 05 owns
+# the real rule set; this table exists so that classification at ingestion is
+# actually attempted rather than every document landing at one default level.
+CLASSIFICATION_MARKERS: dict[str, set[str]] = {
+    "HIGHLY_CONFIDENTIAL": {
+        "HIGHLY CONFIDENTIAL",
+        "TOP SECRET",
+        "RESTRICTED ACCESS",
+        "BOARD CONFIDENTIAL",
+        "TRADE SECRET",
+    },
+    "CONFIDENTIAL": {
+        "CONFIDENTIAL",
+        "COMMERCIAL IN CONFIDENCE",
+        "PROPRIETARY",
+        "NOT FOR CIRCULATION",
+        "P&ID",
+        "PIPING AND INSTRUMENTATION",
+        "HAZOP",
+    },
+    "PUBLIC": {
+        "FOR PUBLIC RELEASE",
+        "PUBLIC DOMAIN",
+        "UNCLASSIFIED",
+    },
+}
 
 ROLE_MAX_CLASSIFICATION = {
     "ENGINEER": "CONFIDENTIAL",
@@ -45,6 +73,9 @@ PERMISSION_MATRIX: dict[tuple[str, str], set[str]] = {
     ("conversation", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
     ("conversation", "write"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
     ("file", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("document", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("document", "search"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
+    ("document", "ingest"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
     ("file", "upload"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
     ("file", "delete"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
     ("task", "read"): {"ENGINEER", "ANALYST", "MANAGER", "ADMIN"},
@@ -128,6 +159,45 @@ class PermissivePolicy:
 
         return True, f"permitted at {level}"
 
+    def classify_document(self, *, filename: str, text: str) -> tuple[str, str]:
+        """Keyword classification, standing in for Part 05's rule engine.
+
+        The default is INTERNAL, never PUBLIC. An unmarked document on this
+        system is one nobody has reviewed yet, and treating it as publishable
+        is the failure mode that matters: PUBLIC has to be claimed explicitly.
+        """
+        haystack = f"{filename} {text}".upper()
+
+        for level in ("HIGHLY_CONFIDENTIAL", "CONFIDENTIAL"):
+            hits = [
+                marker for marker in CLASSIFICATION_MARKERS[level] if marker in haystack
+            ]
+            if hits:
+                return level, f"matched {', '.join(sorted(hits)[:3])}"
+
+        if any(marker in haystack for marker in CLASSIFICATION_MARKERS["PUBLIC"]):
+            return "PUBLIC", "explicitly marked for public release"
+
+        return "INTERNAL", "no sensitivity marking found; defaulted to INTERNAL"
+
+    def readable_classifications(self, roles: list[str]) -> list[str]:
+        """Levels at or below the highest clearance these roles carry."""
+        held = set(roles)
+        if not held:
+            return []
+
+        known = held & set(ROLE_MAX_CLASSIFICATION)
+        if not known:
+            # An unrecognised role reads nothing. Guessing a clearance for a
+            # role the policy engine has never heard of is how data leaks.
+            return []
+
+        ceiling = max(
+            (ROLE_MAX_CLASSIFICATION[role] for role in known),
+            key=CLASSIFICATION_ORDER.index,
+        )
+        return CLASSIFICATION_ORDER[: CLASSIFICATION_ORDER.index(ceiling) + 1]
+
 
 class InMemoryAudit:
     """Append-only in memory. Part 05 swaps in the Postgres ledger."""
@@ -154,6 +224,29 @@ class NoopDocuments:
 
     def ingest(self, file_id: UUID) -> None:
         logger.info("ingestion requested for file %s (Part 03 not wired yet)", file_id)
+
+
+class EmptyKnowledge:
+    """Part 03 replaces this. Until then there is nothing to retrieve.
+
+    It returns no evidence rather than fabricating any: an agent that is told
+    a document says something it does not is worse than one that is told
+    nothing is indexed.
+    """
+
+    def search(
+        self,
+        query: str,
+        *,
+        roles: list[str],
+        limit: int = 5,
+        document_ids: list[UUID] | None = None,
+    ) -> list[Evidence]:
+        logger.info("knowledge search for %r (Part 03 not wired yet)", query[:80])
+        return []
+
+    def status(self) -> dict:
+        return {"available": False, "detail": "Part 03 not wired yet"}
 
 
 class EchoOrchestrator:

@@ -12,7 +12,13 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from app.schemas.shared import Artifact, AuditEvent, ModelDescriptor, ToolDescriptor
+from app.schemas.shared import (
+    Artifact,
+    AuditEvent,
+    Evidence,
+    ModelDescriptor,
+    ToolDescriptor,
+)
 
 
 @runtime_checkable
@@ -62,6 +68,23 @@ class PolicyPort(Protocol):
         """
         ...
 
+    def classify_document(self, *, filename: str, text: str) -> tuple[str, str]:
+        """Return ``(classification, reason)`` for a document being ingested.
+
+        Part 03 supplies the text and never decides the level: sensitivity is
+        Part 05's rule set, and a second implementation of it in the ingestion
+        pipeline is a second thing to keep correct.
+        """
+        ...
+
+    def readable_classifications(self, roles: list[str]) -> list[str]:
+        """The levels these roles may read, for filtering retrieval.
+
+        Returned as a list rather than a ceiling so a caller cannot be handed
+        a level by getting the ordering wrong.
+        """
+        ...
+
 
 @runtime_checkable
 class AuditPort(Protocol):
@@ -79,6 +102,32 @@ class DocumentsPort(Protocol):
     """Part 03 -- ingestion is triggered by Part 01 on upload."""
 
     def ingest(self, file_id: UUID) -> None: ...
+
+
+@runtime_checkable
+class KnowledgePort(Protocol):
+    """Part 03 -- retrieval, exposed to Part 04 as a tool.
+
+    The orchestrator never queries the knowledge store directly; it calls
+    ``search`` and gets back citable ``Evidence``. Keeping that boundary is
+    what lets the store change from Neo4j to anything else without the agent
+    noticing.
+    """
+
+    def search(
+        self,
+        query: str,
+        *,
+        roles: list[str],
+        limit: int = 5,
+        document_ids: list[UUID] | None = None,
+    ) -> list[Evidence]:
+        """Ranked evidence the caller's roles are cleared to read."""
+        ...
+
+    def status(self) -> dict:
+        """Index reachability and corpus size, for the system status view."""
+        ...
 
 
 @runtime_checkable

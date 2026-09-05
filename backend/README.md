@@ -36,7 +36,9 @@ Interactive API docs: <http://127.0.0.1:8000/docs> — served only when
 operational ones. `.env.example` enables it for local development.
 
 The default `DATABASE_URL` is SQLite, so the API runs with no external
-services. Docker Compose points the same SQLAlchemy models at PostgreSQL:
+services. Docker Compose points the same SQLAlchemy models at PostgreSQL
+and brings up Neo4j for the knowledge index (set `NEO4J_PASSWORD` first —
+compose refuses to start without it):
 
 ```bash
 docker compose up --build
@@ -86,6 +88,14 @@ GET    /api/v1/tasks/{id}/trace       -- historical trace from the audit ledger
 
 GET    /api/v1/artifacts/{id}         GET    /api/v1/artifacts/{id}/download
 
+GET    /api/v1/documents              -- the knowledge-base list
+GET    /api/v1/documents/{id}         -- one document, its pages and its tags
+GET    /api/v1/documents/{id}/pages/{n}
+POST   /api/v1/documents/reingest/{file_id}
+POST   /api/v1/knowledge/search       -- hybrid retrieval, returns Evidence
+GET    /api/v1/knowledge/equipment/{tag}  -- P&ID graph traversal
+GET    /internal/knowledge/status     -- index reachability and corpus size
+
 GET    /api/v1/models                 -- the model registry
 GET    /api/v1/models/{id}            -- one model plus its measured performance
 POST   /api/v1/models/route           -- what the router would pick, and why
@@ -115,7 +125,7 @@ confidential work, internals must not reach the client.
 
 ## How the other parts attach
 
-Part 01 depends on six protocols in `app/integrations/ports.py` and resolves
+Part 01 depends on seven protocols in `app/integrations/ports.py` and resolves
 them through `app/integrations/registry.py`. Placeholders in
 `app/integrations/stubs.py` keep the API runnable end to end today; each part
 replaces its own by calling the matching `register_*` function at startup.
@@ -130,7 +140,8 @@ Nothing else in Part 01 changes when a real implementation lands.
 | Port | Owner | Placeholder |
 |---|---|---|
 | `ModelPort` | Part 02 | **live** — `ModelLayer` over the real registry |
-| `DocumentsPort` | Part 03 | `NoopDocuments` |
+| `DocumentsPort` | Part 03 | **live** — `DocumentPipeline`, the real ingestion pipeline |
+| `KnowledgePort` | Part 03 | **live** — `KnowledgeService`, hybrid retrieval |
 | `OrchestratorPort` | Part 04 | `EchoOrchestrator` — real status transitions and event names |
 | `ArtifactsPort` | Part 04 | `EmptyArtifacts` |
 | `PolicyPort` | Part 05 | `PermissivePolicy` — role → classification ceiling |

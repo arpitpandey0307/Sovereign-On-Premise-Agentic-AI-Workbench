@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import knowledge as knowledge_api
 from app.api import models as models_api
 from app.api.router import api_router
 from app.core.config import settings
@@ -23,6 +24,7 @@ from app.core.events import event_bus
 from app.db.database import SessionLocal, init_db
 from app.db.models import User
 from app.db.repositories.users import UserRepository
+from app.documents import port as documents_port
 from app.integrations import registry
 from app.models import port as model_port
 from app.models.service import model_service
@@ -70,6 +72,9 @@ async def lifespan(app: FastAPI):
     # Part 02 takes over the model port, then seeds its catalogue against
     # the GPU actually present and reconciles it with the live runtime.
     model_port.install()
+    # Part 03 takes over ingestion and retrieval. It is installed after the
+    # model layer because embedding routes through it.
+    documents_port.install()
     if settings.refresh_model_registry_on_startup:
         with SessionLocal() as db:
             statuses = await model_service.refresh_registry(db)
@@ -88,6 +93,7 @@ async def lifespan(app: FastAPI):
             ("policy (Part 05)", registry.get_policy()),
             ("audit (Part 05)", registry.get_audit()),
             ("documents (Part 03)", registry.get_documents()),
+            ("knowledge (Part 03)", registry.get_knowledge()),
             ("orchestrator (Part 04)", registry.get_orchestrator()),
             ("artifacts (Part 04)", registry.get_artifacts()),
         )
@@ -125,6 +131,7 @@ app.add_middleware(
 register_exception_handlers(app)
 app.include_router(api_router)
 app.include_router(models_api.router)
+app.include_router(knowledge_api.router)
 
 
 def _part_status(port: object) -> str:

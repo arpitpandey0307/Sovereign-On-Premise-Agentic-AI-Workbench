@@ -11,6 +11,7 @@ from app.integrations.ports import (
     ArtifactsPort,
     AuditPort,
     DocumentsPort,
+    KnowledgePort,
     ModelPort,
     OrchestratorPort,
     PolicyPort,
@@ -19,6 +20,7 @@ from app.integrations.ports import (
 _policy: PolicyPort = stubs.PermissivePolicy()
 _audit: AuditPort = stubs.InMemoryAudit()
 _documents: DocumentsPort = stubs.NoopDocuments()
+_knowledge: KnowledgePort = stubs.EmptyKnowledge()
 _orchestrator: OrchestratorPort = stubs.EchoOrchestrator()
 _artifacts: ArtifactsPort = stubs.EmptyArtifacts()
 _models: ModelPort = stubs.LocalOllamaProbe()
@@ -34,6 +36,10 @@ def get_audit() -> AuditPort:
 
 def get_documents() -> DocumentsPort:
     return _documents
+
+
+def get_knowledge() -> KnowledgePort:
+    return _knowledge
 
 
 def get_orchestrator() -> OrchestratorPort:
@@ -61,6 +67,11 @@ def register_audit(impl: AuditPort) -> None:
 def register_documents(impl: DocumentsPort) -> None:
     global _documents
     _documents = impl
+
+
+def register_knowledge(impl: KnowledgePort) -> None:
+    global _knowledge
+    _knowledge = impl
 
 
 def register_orchestrator(impl: OrchestratorPort) -> None:
