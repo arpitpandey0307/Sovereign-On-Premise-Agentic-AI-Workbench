@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import knowledge as knowledge_api
 from app.api import models as models_api
+from app.api import orchestration as orchestration_api
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.dependencies import require
@@ -28,6 +29,7 @@ from app.documents import port as documents_port
 from app.integrations import registry
 from app.models import port as model_port
 from app.models.service import model_service
+from app.orchestration import executor as orchestration
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -75,6 +77,9 @@ async def lifespan(app: FastAPI):
     # Part 03 takes over ingestion and retrieval. It is installed after the
     # model layer because embedding routes through it.
     documents_port.install()
+    # Part 04 registers the tools, the orchestrator and the artifact store.
+    # Last, because its tools call into Parts 02 and 03.
+    orchestration.install()
     if settings.refresh_model_registry_on_startup:
         with SessionLocal() as db:
             statuses = await model_service.refresh_registry(db)
@@ -132,6 +137,7 @@ register_exception_handlers(app)
 app.include_router(api_router)
 app.include_router(models_api.router)
 app.include_router(knowledge_api.router)
+app.include_router(orchestration_api.router)
 
 
 def _part_status(port: object) -> str:

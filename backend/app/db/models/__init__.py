@@ -1,3 +1,4 @@
+from app.db.models.artifact import ArtifactRecord, TaskRun
 from app.db.models.conversation import Conversation, Message
 from app.db.models.document import (
     Document,
@@ -12,6 +13,7 @@ from app.db.models.user import ROLE_NAMES, Role, User, UserRole
 
 __all__ = [
     "ROLE_NAMES",
+    "ArtifactRecord",
     "Conversation",
     "Document",
     "DocumentChunk",
@@ -23,6 +25,7 @@ __all__ = [
     "ModelStat",
     "Role",
     "Task",
+    "TaskRun",
     "TaskStep",
     "User",
     "UserRole",

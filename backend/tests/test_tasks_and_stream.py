@@ -29,6 +29,13 @@ def test_create_task_returns_immediately_as_pending(client, auth_headers):
 
 
 def test_task_reaches_a_terminal_status(client, auth_headers):
+    """The lifecycle completes. Whether the agent succeeds is Part 04's test.
+
+    This asserted "completed" while the stub orchestrator always succeeded.
+    The real orchestrator needs a reasoning model, which the suite does not
+    have, so it fails honestly -- and a task that ends failed has still
+    reached a terminal status, which is what this endpoint promises.
+    """
     task_id = _create_task(client, auth_headers).json()["id"]
 
     deadline = time.time() + 5
@@ -41,7 +48,7 @@ def test_task_reaches_a_terminal_status(client, auth_headers):
             break
         time.sleep(0.1)
 
-    assert status == "completed"
+    assert status in {"completed", "failed"}
 
 
 def test_unknown_input_file_is_rejected(client, auth_headers):
@@ -74,9 +81,12 @@ def test_event_stream_delivers_events_and_terminates(client, auth_headers):
         ]
 
     # The stream must replay what it missed and close on the terminal event
-    # rather than hanging the browser connection open.
+    # rather than hanging the browser connection open. Which terminal event
+    # arrives depends on whether a model runtime is present, and the suite has
+    # none -- what this endpoint promises is that the stream ends, not that
+    # the agent succeeds.
     assert "task_created" in events
-    assert events[-1] == "task_completed"
+    assert events[-1] in {"task_completed", "task_failed"}
 
 
 def test_trace_reads_from_the_audit_ledger(client, auth_headers):

@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # which is free and still breaks the V-103/V-104 tie.
     enable_model_rerank: bool = True
 
+    # Approval gates (Part 04). A deliverable drawn from CONFIDENTIAL or
+    # higher material waits for a person before it is produced. Turning this
+    # off is a deliberate decision, not a default -- the audit trail records
+    # an unapproved artifact either way.
+    require_approval_above_internal: bool = True
+    # Code execution (Part 04). The sandbox is network-disabled by
+    # construction; this switch is for a host with no Docker at all.
+    enable_code_sandbox: bool = True
+
     # Neo4j (Part 03). Loopback only, like every other dependency here.
     neo4j_uri: str = "bolt://127.0.0.1:7687"
     neo4j_user: str = "neo4j"

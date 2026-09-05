@@ -42,10 +42,22 @@ class GpuState:
 
     @property
     def usable_vram_gb(self) -> float:
-        """Free VRAM minus the overhead a freshly loaded model will incur."""
+        """What a model could actually claim, not merely what is free now.
+
+        VRAM held by the local runtime's own resident models counts as usable:
+        Ollama evicts them to make room for a new one, so treating that memory
+        as spoken for makes the router refuse models that would have loaded
+        perfectly well. On an 8 GB card that is the difference between the
+        demo running and the router declining every reasoner because an
+        embedding model happens to be warm.
+
+        Memory held by anything else on the card -- the desktop, a browser --
+        is not reclaimable and stays subtracted.
+        """
         if not self.present:
             return 0.0
-        return max(0.0, self.free_vram_gb - CUDA_OVERHEAD_GB - KV_CACHE_HEADROOM_GB)
+        budget = self.free_vram_gb + self.resident_vram_gb
+        return max(0.0, budget - CUDA_OVERHEAD_GB - KV_CACHE_HEADROOM_GB)
 
     @property
     def pressure(self) -> float:
@@ -69,9 +81,38 @@ class HardwareProbe:
         ):
             return self._cached
 
-        self._cached = self._probe()
+        state = self._probe()
+        if state.present:
+            self._add_resident(state)
+        self._cached = state
         self._cached_at = now
         return self._cached
+
+    @staticmethod
+    def _add_resident(state: GpuState) -> None:
+        """Ask the local runtime what it is holding that it would give back.
+
+        Deliberately tolerant: a runtime that is down simply means nothing is
+        reclaimable, which is the conservative answer.
+        """
+        from app.core.config import settings
+
+        try:
+            import httpx
+
+            with httpx.Client(timeout=2.0) as client:
+                payload = client.get(
+                    f"{settings.ollama_base_url.rstrip('/')}/api/ps"
+                ).json()
+        except Exception as exc:
+            logger.debug("could not read resident models: %s", exc)
+            return
+
+        models = payload.get("models") or []
+        state.resident_models = [entry.get("name", "") for entry in models]
+        state.resident_vram_gb = round(
+            sum(entry.get("size_vram", 0) for entry in models) / 1_000_000_000, 2
+        )
 
     def _probe(self) -> GpuState:
         if shutil.which("nvidia-smi") is None:

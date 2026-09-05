@@ -48,13 +48,18 @@ On an empty database the app seeds the five roles and one demo account
 (`admin@mrpl.local` / `workbench`). Set `SEED_DEMO_USER=false` for any
 deployment that is not the demo.
 
-The knowledge index runs separately, and the test suite pins it off so its
-results never depend on whether a container happens to be running. The graph
-path has its own check against a live server:
+The knowledge index and the code sandbox run separately, and the test suite
+pins them off so its results never depend on what happens to be running. Each
+has its own check against the real thing:
 
 ```bash
 docker compose up -d neo4j
-python scripts/verify_neo4j.py
+docker pull python:3.12-slim
+
+python scripts/verify_neo4j.py     # the graph index, against a live server
+python scripts/verify_sandbox.py   # sandbox confinement, against real Docker
+python scripts/verify_vision.py    # the vision pass, against a real model
+python scripts/verify_hero.py      # the demo workflow, end to end
 ```
 
 ## Database migrations
@@ -96,6 +101,10 @@ GET    /api/v1/tasks/{id}/events      -- SSE stream of AgentEvent
 GET    /api/v1/tasks/{id}/trace       -- historical trace from the audit ledger
 
 GET    /api/v1/artifacts/{id}         GET    /api/v1/artifacts/{id}/download
+GET    /api/v1/tasks/{id}/execution   -- the orchestrator's own trace
+GET    /api/v1/tasks/{id}/artifacts   -- what the task produced
+GET    /api/v1/tools                  -- the tool catalogue and its risks
+GET    /internal/sandbox/status       -- code execution and its confinement
 
 GET    /api/v1/documents              -- the knowledge-base list
 GET    /api/v1/documents/{id}         -- one document, its pages and its tags
@@ -151,8 +160,8 @@ Nothing else in Part 01 changes when a real implementation lands.
 | `ModelPort` | Part 02 | **live** — `ModelLayer` over the real registry |
 | `DocumentsPort` | Part 03 | **live** — `DocumentPipeline`, the real ingestion pipeline |
 | `KnowledgePort` | Part 03 | **live** — `KnowledgeService`, hybrid retrieval |
-| `OrchestratorPort` | Part 04 | `EchoOrchestrator` — real status transitions and event names |
-| `ArtifactsPort` | Part 04 | `EmptyArtifacts` |
+| `OrchestratorPort` | Part 04 | **live** — `LangGraphOrchestrator` |
+| `ArtifactsPort` | Part 04 | **live** — `ArtifactStore` |
 | `PolicyPort` | Part 05 | `PermissivePolicy` — role → classification ceiling |
 | `AuditPort` | Part 05 | `InMemoryAudit` |
 

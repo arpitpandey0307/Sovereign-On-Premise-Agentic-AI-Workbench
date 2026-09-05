@@ -16,6 +16,9 @@ pytesseract>=0.3.13      # wrapper; needs the Tesseract binary installed separat
 Pillow>=10.4
 neo4j>=5.25              # graph + vector index
 
-# Part 04 - deterministic artifact generation
+# Part 04 - orchestration, sandbox and deterministic artifact generation
+langgraph>=0.2            # explicit state machine, checkpoints, human-in-loop
 python-docx>=1.1
 openpyxl>=3.1
+python-pptx>=1.0
+docker>=7.1               # sandbox runner; talks to the local daemon only

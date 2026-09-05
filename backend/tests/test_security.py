@@ -330,3 +330,102 @@ def test_the_classifier_never_defaults_a_document_to_public(client, make_user):
         filename="board.pdf", text="HIGHLY CONFIDENTIAL - board circulation only"
     )
     assert marked == "HIGHLY_CONFIDENTIAL"
+
+
+# --- Part 04: orchestration, tools and the sandbox ------------------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/v1/tasks/00000000-0000-0000-0000-000000000001/execution"),
+        ("GET", "/api/v1/tasks/00000000-0000-0000-0000-000000000001/artifacts"),
+        ("GET", "/api/v1/tools"),
+        ("GET", "/internal/sandbox/status"),
+    ],
+)
+def test_no_orchestration_route_is_anonymous(client, method, path):
+    assert client.request(method, path).status_code == 401
+
+
+def test_the_sandbox_status_is_admin_only(client, make_user):
+    """It describes the confinement, which is a map for anyone probing it."""
+    engineer, password = make_user(roles=["ENGINEER"])
+    headers = {"Authorization": f"Bearer {_token(client, engineer, password)}"}
+    assert client.get("/internal/sandbox/status", headers=headers).status_code == 403
+
+    admin, admin_password = make_user(roles=["ADMIN"])
+    admin_headers = {
+        "Authorization": f"Bearer {_token(client, admin, admin_password)}"
+    }
+    response = client.get("/internal/sandbox/status", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["confinement"]["network"] == "none"
+
+
+def test_there_is_no_endpoint_that_runs_a_tool(client):
+    """Tool execution must only ever be reachable through the orchestrator.
+
+    A route that invoked a tool directly would be a second call path that
+    skips the policy check, the audit record and the trace event -- all three
+    of which live in the gateway.
+    """
+    from app.main import app
+
+    invoking = [
+        route.path
+        for route in app.routes
+        if getattr(route, "methods", None)
+        and "POST" in route.methods
+        and "/tools" in route.path
+    ]
+    assert invoking == []
+
+
+def test_another_users_task_execution_is_not_readable(client, auth_headers, make_user):
+    conversation = client.post(
+        "/api/v1/conversations", headers=auth_headers, json={"title": "t"}
+    ).json()
+    created = client.post(
+        "/api/v1/tasks",
+        headers=auth_headers,
+        json={
+            "conversation_id": conversation["id"],
+            "request_text": "Write an approval note",
+            "task_type": "general",
+        },
+    ).json()
+
+    other, password = make_user()
+    other_headers = {"Authorization": f"Bearer {_token(client, other, password)}"}
+    for suffix in ("execution", "artifacts"):
+        response = client.get(
+            f"/api/v1/tasks/{created['task_id']}/{suffix}", headers=other_headers
+        )
+        assert response.status_code == 404
+
+
+def test_a_task_cannot_read_an_input_it_was_not_given(client, auth_headers):
+    """The tool context is the authority, not the caller's ownership.
+
+    A user may own many files; a task may only touch the ones it was created
+    with, or a single prompt injection could widen its reach to the whole
+    corpus.
+    """
+    from uuid import uuid4
+
+    from app.tools import register_default_tools
+    from app.tools.base import ToolContext
+    from app.tools.gateway import gateway
+
+    register_default_tools()
+    owned_elsewhere = uuid4()
+    context = ToolContext(
+        task_id=uuid4(),
+        user_id=uuid4(),
+        roles=["ENGINEER"],
+        input_file_ids=[],
+    )
+    result = gateway.call("file.read", {"file_id": str(owned_elsewhere)}, context)
+    assert not result.ok
+    assert "not one of this task's inputs" in result.error

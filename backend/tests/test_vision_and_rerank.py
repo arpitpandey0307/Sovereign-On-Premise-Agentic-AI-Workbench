@@ -254,19 +254,27 @@ def test_the_reranker_is_a_vllm_model_because_ollama_has_no_rerank_endpoint():
 
 def test_an_unavailable_model_names_the_right_runtime_in_its_remedy(db):
     """Telling an operator to `ollama pull` a vLLM-only model wastes their time."""
+    from app.db.models import ModelRecord
     from app.models.registry import ModelRegistry
 
     registry = ModelRegistry(db)
     registry.seed()
     registry.reconcile(set())
 
-    for record in registry.all():
-        assert record.status == "unavailable"
-        if record.provider == "ollama":
-            assert "ollama pull" in record.status_detail
-        else:
-            assert "ollama pull" not in record.status_detail
-            assert record.provider in record.status_detail
+    try:
+        for record in registry.all():
+            assert record.status == "unavailable"
+            if record.provider == "ollama":
+                assert "ollama pull" in record.status_detail
+            else:
+                assert "ollama pull" not in record.status_detail
+                assert record.provider in record.status_detail
+    finally:
+        # The suite shares one database, and a seeded registry would change
+        # what every later routing decision sees -- making the results depend
+        # on test order.
+        db.query(ModelRecord).delete()
+        db.commit()
 
 
 # --- the vLLM adapter -----------------------------------------------------

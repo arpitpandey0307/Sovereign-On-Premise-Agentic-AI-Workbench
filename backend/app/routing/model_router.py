@@ -328,7 +328,9 @@ class ModelRouter:
                         "hardware",
                         f"needs {required:.1f} GB, only "
                         f"{gpu.usable_vram_gb:.1f} GB usable "
-                        f"({gpu.free_vram_gb:.1f} GB free minus overhead)",
+                        f"({gpu.free_vram_gb:.1f} GB free plus "
+                        f"{gpu.resident_vram_gb:.1f} GB reclaimable, "
+                        "minus overhead)",
                     )
                 )
                 continue
