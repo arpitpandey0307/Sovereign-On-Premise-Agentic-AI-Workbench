@@ -118,6 +118,7 @@ def main() -> int:
             repo.create(email="vision@mrpl.local", name="Vision",
                         password="vision-password", roles=["ENGINEER"])
 
+    ingested: list = []
     drawing = build_drawing()
     print(f"\n=== 1. ingesting a synthetic P&ID ({len(drawing)} bytes) ===")
     print("    a vision pass on an 8 GB card takes a little while...")
@@ -185,6 +186,7 @@ def main() -> int:
             print("\n=== 5. the drawing became retrievable ===")
             check("chunks were produced from the description",
                   document.chunk_count > 0, f"{document.chunk_count} chunk(s)")
+            ingested.append(document.id)
 
         body = client.post(
             "/api/v1/knowledge/search",
@@ -199,6 +201,8 @@ def main() -> int:
             snippet = item["text"].replace("\n", " ")[:100]
             print(f"    [p.{item['page']}] {item['score']} :: {snippet}")
 
+    _cleanup_graph(ingested)
+
     print("\n" + "=" * 62)
     if failures:
         print(f"FAILURES ({len(failures)}):")
@@ -207,6 +211,21 @@ def main() -> int:
         return 1
     print("Every check passed. The vision pass works end to end.")
     return 0
+
+
+def _cleanup_graph(document_ids: list) -> None:
+    """Remove what this run put in the shared graph.
+
+    The relational store is a throwaway file, but Neo4j is shared with every
+    other verification script and with the developer's own corpus. A script
+    that leaves its documents behind makes the next run's results depend on
+    how many times it has been run before.
+    """
+    from app.knowledge.neo4j_client import neo4j_client
+
+    for document_id in document_ids:
+        if document_id is not None:
+            neo4j_client.delete_document(document_id)
 
 
 if __name__ == "__main__":

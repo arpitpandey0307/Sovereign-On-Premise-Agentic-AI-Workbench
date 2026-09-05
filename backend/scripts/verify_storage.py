@@ -157,6 +157,8 @@ def main() -> int:
         status = client.get("/api/v1/documents", headers=headers)
         check("the document is listed", status.json()["total"] >= 1)
 
+    _cleanup_graph([document.id] if document else [])
+
     print("\n" + "=" * 62)
     if failures:
         print(f"FAILURES ({len(failures)}):")
@@ -165,6 +167,21 @@ def main() -> int:
         return 1
     print("MinIO works end to end: uploads, ingestion and retrieval.")
     return 0
+
+
+def _cleanup_graph(document_ids: list) -> None:
+    """Remove what this run put in the shared graph.
+
+    The relational store is a throwaway file, but Neo4j is shared with every
+    other verification script and with the developer's own corpus. A script
+    that leaves its documents behind makes the next run's results depend on
+    how many times it has been run before.
+    """
+    from app.knowledge.neo4j_client import neo4j_client
+
+    for document_id in document_ids:
+        if document_id is not None:
+            neo4j_client.delete_document(document_id)
 
 
 if __name__ == "__main__":
