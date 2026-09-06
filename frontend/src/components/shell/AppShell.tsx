@@ -46,12 +46,12 @@ export function AppShell() {
     TITLES[`/${location.pathname.split("/")[1] ?? ""}`];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-base">
+    <div className="shell">
       <Sidebar collapsed={collapsed} onToggle={toggle} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="main">
         <SessionNotice />
         <Header title={title} />
-        <main className="flex-1 overflow-y-auto">
+        <main className="view">
           <Outlet />
         </main>
       </div>

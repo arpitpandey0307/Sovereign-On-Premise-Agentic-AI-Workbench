@@ -143,7 +143,7 @@ export function Workspaces() {
   };
 
   return (
-    <div className="min-h-screen bg-base px-6 py-16">
+    <div className="min-h-screen bg-canvas px-6 py-16">
       <div className="mx-auto max-w-4xl">
         <header className="mb-2 flex items-center gap-2.5">
           <div className="grid size-8 place-items-center rounded bg-accent-soft">

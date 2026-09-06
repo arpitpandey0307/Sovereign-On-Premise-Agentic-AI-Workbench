@@ -15,9 +15,9 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
   const describedBy = error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined;
 
   return (
-    <div className="space-y-1.5">
+    <div>
       {label && (
-        <label htmlFor={inputId} className="block text-xs font-medium text-secondary">
+        <label htmlFor={inputId} className="field-label">
           {label}
         </label>
       )}
@@ -26,24 +26,26 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
         id={inputId}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
-        className={cn(
-          "w-full h-10 px-3 rounded-[var(--radius)] bg-input text-primary text-sm",
-          "border border-subtle placeholder:text-tertiary",
-          "focus:border-accent focus:outline-none focus-visible:outline-none",
-          "transition-colors",
-          error && "border-danger",
-          className,
-        )}
+        className={cn("input", error && "err", className)}
         {...rest}
       />
       {error ? (
         // Errors are announced: a form that only shows a colour change is
         // invisible to a screen reader and easy to miss on a dense page.
-        <p id={`${inputId}-error`} role="alert" className="text-xs text-danger">
+        <p
+          id={`${inputId}-error`}
+          role="alert"
+          className="mt-1.5 text-[12.5px]"
+          style={{ color: "var(--danger-text)" }}
+        >
           {error}
         </p>
       ) : hint ? (
-        <p id={`${inputId}-hint`} className="text-xs text-tertiary">
+        <p
+          id={`${inputId}-hint`}
+          className="mt-1.5 text-[12.5px]"
+          style={{ color: "var(--text-mute)" }}
+        >
           {hint}
         </p>
       ) : null}

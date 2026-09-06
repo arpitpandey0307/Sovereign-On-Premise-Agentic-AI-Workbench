@@ -1,13 +1,13 @@
 import { NavLink } from "react-router-dom";
 import {
   Boxes,
-  ChevronLeft,
   FileText,
   FlaskConical,
   LayoutDashboard,
   Library,
   ListChecks,
   Lock,
+  PanelLeft,
   Settings,
   Shield,
 } from "lucide-react";
@@ -52,102 +52,64 @@ export function Sidebar({
     items.filter((item) => !item.needs || can(item.needs[0], item.needs[1]));
 
   return (
-    <aside
-      className={cn(
-        "flex shrink-0 flex-col border-r border-subtle bg-panel transition-[width] duration-200",
-        collapsed ? "w-16" : "w-60",
-      )}
-    >
-      <div
-        className={cn(
-          "flex h-14 items-center gap-2 border-b border-subtle px-4",
-          collapsed && "justify-center px-0",
-        )}
-      >
-        <div className="grid size-7 shrink-0 place-items-center rounded bg-accent-soft">
-          <Lock className="size-3.5 text-accent" aria-hidden />
+    <aside className={cn("sidebar", collapsed && "collapsed")}>
+      <div className="sidebar-brand">
+        <div className="logo" />
+        <div className="brand-text">
+          <div className="name">SOVEREIGN AI</div>
+          <div className="sub">SECURE WORKBENCH</div>
         </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="truncate text-[13px] font-semibold tracking-tight text-primary">
-              SOVEREIGN AI
-            </p>
-            <p className="truncate text-[10px] text-tertiary">
-              Industrial Intelligence
-            </p>
-          </div>
-        )}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto p-2" aria-label="Main">
-        <ul className="space-y-0.5">
-          {visible(PRIMARY).map((item) => (
-            <li key={item.to}>
-              <Link item={item} collapsed={collapsed} />
-            </li>
-          ))}
-        </ul>
-
-        <div className="my-3 border-t border-subtle" />
-
-        <ul className="space-y-0.5">
-          {SECONDARY.map((item) => {
-            const permitted = !item.needs || can(item.needs[0], item.needs[1]);
-            // Security Center stays visible but locked for roles that cannot
-            // enter it. Knowing the system *has* oversight is part of what the
-            // product is arguing, so hiding it entirely would understate it.
-            if (!permitted && item.to !== "/security") return null;
-            return (
-              <li key={item.to}>
-                {permitted ? (
-                  <Link item={item} collapsed={collapsed} />
-                ) : (
-                  <LockedLink item={item} collapsed={collapsed} />
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      <div className="border-t border-subtle p-2">
-        <NavLink
-          to="/profile"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-2.5 rounded-[var(--radius)] p-2 transition-colors",
-              isActive ? "bg-elevated" : "hover:bg-elevated",
-              collapsed && "justify-center",
-            )
-          }
-        >
-          <div className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent-text">
-            {(user?.name ?? "?").slice(0, 1).toUpperCase()}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-primary">
-                {user?.name ?? "Signed out"}
-              </p>
-              <p className="truncate text-[10px] text-tertiary">
-                {roleLabel(user?.roles ?? [])}
-              </p>
-            </div>
-          )}
-        </NavLink>
-
         <button
           type="button"
+          className="sidebar-toggle"
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="mt-1 flex w-full items-center justify-center rounded p-1.5 text-tertiary transition-colors hover:bg-elevated hover:text-secondary"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <ChevronLeft
-            className={cn("size-4 transition-transform", collapsed && "rotate-180")}
-            aria-hidden
-          />
+          <PanelLeft className="size-4" aria-hidden />
         </button>
       </div>
+
+      <nav className="nav" aria-label="Main">
+        {!collapsed && <div className="nav-group-label">Workspace</div>}
+        {visible(PRIMARY).map((item) => (
+          <Link key={item.to} item={item} collapsed={collapsed} />
+        ))}
+
+        {!collapsed && <div className="nav-group-label">Oversight</div>}
+        {SECONDARY.map((item) => {
+          const permitted = !item.needs || can(item.needs[0], item.needs[1]);
+          // Security Center stays visible but locked for roles that cannot
+          // enter it. Knowing the system *has* oversight is part of what the
+          // product is arguing, so hiding it entirely would understate it.
+          if (!permitted && item.to !== "/security") return null;
+          return permitted ? (
+            <Link key={item.to} item={item} collapsed={collapsed} />
+          ) : (
+            <LockedLink key={item.to} item={item} collapsed={collapsed} />
+          );
+        })}
+      </nav>
+
+      <div className="sidebar-scroll" />
+
+      <NavLink
+        to="/profile"
+        className="sidebar-user"
+        style={({ isActive }) =>
+          isActive ? { background: "var(--panel-2)" } : undefined
+        }
+      >
+        <div className="avatar">
+          {(user?.name ?? "?").slice(0, 1).toUpperCase()}
+        </div>
+        {!collapsed && (
+          <div className="meta">
+            <div className="u-name">{user?.name ?? "Signed out"}</div>
+            <div className="u-role">{roleLabel(user?.roles ?? [])}</div>
+          </div>
+        )}
+      </NavLink>
     </aside>
   );
 }
@@ -158,18 +120,12 @@ function Link({ item, collapsed }: { item: Item; collapsed: boolean }) {
     <NavLink
       to={to}
       title={collapsed ? label : undefined}
-      className={({ isActive }) =>
-        cn(
-          "flex items-center gap-2.5 rounded-[var(--radius)] px-2.5 py-2 text-[13px] transition-colors",
-          isActive
-            ? "bg-accent-soft font-medium text-accent-text"
-            : "text-secondary hover:bg-elevated hover:text-primary",
-          collapsed && "justify-center px-0",
-        )
-      }
+      className={({ isActive }) => cn("nav-item", isActive && "active")}
     >
-      <Icon className="size-4 shrink-0" aria-hidden />
-      {!collapsed && <span className="truncate">{label}</span>}
+      <span className="ico">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      {!collapsed && <span className="label">{label}</span>}
     </NavLink>
   );
 }
@@ -178,18 +134,17 @@ function LockedLink({ item, collapsed }: { item: Item; collapsed: boolean }) {
   const { Icon, label } = item;
   return (
     <div
+      className="nav-item locked"
       title={`${label} — requires an administrator or security role`}
       aria-disabled
-      className={cn(
-        "flex cursor-not-allowed items-center gap-2.5 rounded-[var(--radius)] px-2.5 py-2 text-[13px] text-tertiary/60",
-        collapsed && "justify-center px-0",
-      )}
     >
-      <Icon className="size-4 shrink-0" aria-hidden />
+      <span className="ico">
+        <Icon className="size-4" aria-hidden />
+      </span>
       {!collapsed && (
         <>
-          <span className="truncate">{label}</span>
-          <Lock className="ml-auto size-3" aria-hidden />
+          <span className="label">{label}</span>
+          <Lock className="size-3" aria-hidden />
         </>
       )}
     </div>

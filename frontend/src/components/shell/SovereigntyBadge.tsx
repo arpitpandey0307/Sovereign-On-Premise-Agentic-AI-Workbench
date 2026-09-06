@@ -35,38 +35,11 @@ function stateOf(data: Sovereignty | undefined, denied: boolean): State {
   return "secure";
 }
 
-const PRESENTATION: Record<
-  State,
-  { label: string; value: string; dot: string; text: string; border: string }
-> = {
-  secure: {
-    label: "SOVEREIGN MODE",
-    value: "ON",
-    dot: "bg-positive",
-    text: "text-positive",
-    border: "border-positive/30",
-  },
-  breached: {
-    label: "SOVEREIGN MODE",
-    value: "BREACHED",
-    dot: "bg-danger animate-pulse",
-    text: "text-danger",
-    border: "border-danger/50",
-  },
-  unverified: {
-    label: "SOVEREIGN MODE",
-    value: "UNVERIFIED",
-    dot: "bg-warning",
-    text: "text-warning",
-    border: "border-warning/40",
-  },
-  unknown: {
-    label: "SOVEREIGN MODE",
-    value: "--",
-    dot: "bg-inactive",
-    text: "text-tertiary",
-    border: "border-subtle",
-  },
+const PRESENTATION: Record<State, { label: string; value: string; airgap: string }> = {
+  secure: { label: "SOVEREIGN MODE", value: "ON", airgap: "" },
+  breached: { label: "SOVEREIGN MODE", value: "BREACHED", airgap: "danger" },
+  unverified: { label: "SOVEREIGN MODE", value: "UNVERIFIED", airgap: "warn" },
+  unknown: { label: "SOVEREIGN MODE", value: "--", airgap: "mute" },
 };
 
 export function SovereigntyBadge() {
@@ -110,28 +83,12 @@ export function SovereigntyBadge() {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className={cn(
-          "flex items-center gap-2 rounded-[var(--radius)] border px-3 py-1.5",
-          "bg-panel transition-colors hover:bg-elevated",
-          presentation.border,
-        )}
+        className={cn("airgap", presentation.airgap)}
       >
-        <Lock className={cn("size-3.5", presentation.text)} aria-hidden />
-        <span className="hidden text-[10px] font-medium tracking-wider text-tertiary sm:inline">
-          {presentation.label}
-        </span>
-        <span
-          className={cn(
-            "mono text-[11px] font-semibold tracking-wide",
-            presentation.text,
-          )}
-        >
-          {presentation.value}
-        </span>
-        <span
-          className={cn("size-1.5 rounded-full", presentation.dot)}
-          aria-hidden
-        />
+        <Lock className="size-3.5" aria-hidden />
+        <span className="hidden sm:inline">{presentation.label}</span>
+        <span className="mono font-semibold">{presentation.value}</span>
+        <span className="dot" aria-hidden />
       </button>
 
       {open && (

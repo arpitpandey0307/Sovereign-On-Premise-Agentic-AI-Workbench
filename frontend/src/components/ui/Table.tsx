@@ -7,6 +7,8 @@
  * are the parts that get skipped when each screen writes its own `<table>`,
  * and an audit log that renders nothing when it is empty is indistinguishable
  * from one that is broken.
+ *
+ * Styling is the `front` design system's `.table-wrap` / `.data-table`.
  */
 
 import type { ReactNode } from "react";
@@ -40,20 +42,15 @@ export function Table<T>({
   className?: string;
 }) {
   return (
-    // Wide tables scroll inside their own container; the page never does.
-    <div className={cn("w-full overflow-x-auto", className)}>
-      <table className="w-full border-collapse text-sm">
+    <div className={cn("table-wrap", className)}>
+      <table className="data-table">
         <thead>
-          <tr className="border-b border-subtle">
+          <tr>
             {columns.map((column) => (
               <th
                 key={column.key}
                 scope="col"
-                className={cn(
-                  "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-tertiary",
-                  column.numeric && "text-right",
-                  column.className,
-                )}
+                className={cn(column.numeric && "text-right", column.className)}
               >
                 {column.header}
               </th>
@@ -67,7 +64,8 @@ export function Table<T>({
             <tr>
               <td
                 colSpan={columns.length}
-                className="px-3 py-10 text-center text-sm text-tertiary"
+                className="text-center"
+                style={{ color: "var(--text-mute)", padding: "40px 14px" }}
               >
                 {empty}
               </td>
@@ -79,16 +77,13 @@ export function Table<T>({
               <tr
                 key={rowKey(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={cn(
-                  "border-b border-subtle/60 last:border-0",
-                  onRowClick && "cursor-pointer transition hover:bg-subtle",
-                )}
+                className={cn(onRowClick && "cursor-pointer")}
               >
                 {columns.map((column) => (
                   <td
                     key={column.key}
                     className={cn(
-                      "px-3 py-2.5 align-top text-secondary",
+                      "align-top",
                       column.numeric && "text-right font-mono tabular-nums",
                       column.className,
                     )}
@@ -109,10 +104,13 @@ function SkeletonRows({ columns }: { columns: number }) {
   return (
     <>
       {[0, 1, 2].map((row) => (
-        <tr key={row} className="border-b border-subtle/60">
+        <tr key={row}>
           {Array.from({ length: columns }, (_, column) => (
-            <td key={column} className="px-3 py-3">
-              <div className="h-3 w-full max-w-40 animate-pulse rounded bg-subtle" />
+            <td key={column}>
+              <div
+                className="h-3 w-full max-w-40 animate-pulse rounded"
+                style={{ background: "var(--elevated-2)" }}
+              />
             </td>
           ))}
         </tr>

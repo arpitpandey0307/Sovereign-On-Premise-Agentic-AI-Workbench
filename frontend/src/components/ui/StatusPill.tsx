@@ -12,7 +12,7 @@ import {
 import { cn } from "@/lib/cn";
 
 /**
- * The status vocabulary, from the design brief's global status system.
+ * The status vocabulary, mapped onto the `front` design system's `.pill`.
  *
  * Every pill carries an icon and a word as well as a colour. That is an
  * accessibility requirement, and it is a practical one too: these states carry
@@ -26,24 +26,12 @@ export type Tone =
   | "danger" // blocked, failed, security violation, denied
   | "inactive"; // unavailable, not started
 
-const TONES: Record<Tone, { className: string; Icon: typeof CheckCircle2 }> = {
-  positive: {
-    className: "bg-positive-soft text-positive border-positive/30",
-    Icon: CheckCircle2,
-  },
-  info: { className: "bg-info-soft text-info border-info/30", Icon: Loader2 },
-  warning: {
-    className: "bg-warning-soft text-warning border-warning/30",
-    Icon: Clock,
-  },
-  danger: {
-    className: "bg-danger-soft text-danger border-danger/30",
-    Icon: XCircle,
-  },
-  inactive: {
-    className: "bg-inactive-soft text-inactive border-inactive/30",
-    Icon: CircleDashed,
-  },
+const TONES: Record<Tone, { pill: string; Icon: typeof CheckCircle2 }> = {
+  positive: { pill: "ok", Icon: CheckCircle2 },
+  info: { pill: "accent", Icon: Loader2 },
+  warning: { pill: "warn", Icon: Clock },
+  danger: { pill: "danger", Icon: XCircle },
+  inactive: { pill: "", Icon: CircleDashed },
 };
 
 export function StatusPill({
@@ -59,16 +47,9 @@ export function StatusPill({
   spin?: boolean;
   className?: string;
 }) {
-  const { className: toneClass, Icon } = TONES[tone];
+  const { pill, Icon } = TONES[tone];
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5",
-        "text-[11px] font-medium uppercase tracking-wide whitespace-nowrap",
-        toneClass,
-        className,
-      )}
-    >
+    <span className={cn("pill uppercase", pill, className)}>
       {icon ?? (
         <Icon className={cn("size-3", spin && "animate-spin")} aria-hidden />
       )}

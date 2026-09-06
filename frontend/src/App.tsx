@@ -1,13 +1,37 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import type { ReactNode } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
-import { AppShell } from "@/components/shell/AppShell";
 import { LoadingState } from "@/components/states/LoadingState";
 import { Login } from "@/pages/Login";
 import { Signup } from "@/pages/Signup";
-import { Workspaces } from "@/pages/Workspaces";
-import { Dashboard } from "@/pages/Dashboard";
-import { Placeholder } from "@/pages/Placeholder";
+
+// Three bundles, not one. A visitor who never signs in should not download the
+// workbench, and someone working in the workbench should not be carrying the
+// landing page's animation code around with them. Login and Signup stay in the
+// entry chunk deliberately: they are small, and one of them is where almost
+// every visitor goes next.
+const Landing = lazy(() => import("@/pages/landing/Landing"));
+const AppShell = lazy(() =>
+  import("@/components/shell/AppShell").then((m) => ({ default: m.AppShell })),
+);
+const Workspaces = lazy(() =>
+  import("@/pages/Workspaces").then((m) => ({ default: m.Workspaces })),
+);
+const Dashboard = lazy(() =>
+  import("@/pages/Dashboard").then((m) => ({ default: m.Dashboard })),
+);
+const Placeholder = lazy(() =>
+  import("@/pages/Placeholder").then((m) => ({ default: m.Placeholder })),
+);
+
+/** Held while a route chunk arrives. */
+function RouteFallback() {
+  return (
+    <div className="grid h-screen place-items-center bg-canvas">
+      <LoadingState rows={2} label="Loading" />
+    </div>
+  );
+}
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -17,7 +41,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   // flashes and then bounces to login.
   if (loading) {
     return (
-      <div className="grid h-screen place-items-center bg-base">
+      <div className="grid h-screen place-items-center bg-canvas">
         <LoadingState rows={2} label="Restoring session" />
       </div>
     );
@@ -33,9 +57,17 @@ function RequireAuth({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <Routes>
-      {/* The landing page arrives in Part 02; until then the root goes to
-          the application. */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route
+        path="/"
+        element={
+          // A bare ground rather than a spinner: the chunk arrives in a few
+          // hundred milliseconds and a spinner that flashes is worse than a
+          // brief hold on the page's own background colour.
+          <Suspense fallback={<div className="min-h-screen bg-canvas" />}>
+            <Landing />
+          </Suspense>
+        }
+      />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
 
@@ -43,15 +75,22 @@ export default function App() {
         path="/workspaces"
         element={
           <RequireAuth>
-            <Workspaces />
+            <Suspense fallback={<RouteFallback />}>
+              <Workspaces />
+            </Suspense>
           </RequireAuth>
         }
       />
 
+      {/* One boundary around the whole authenticated area: the shell and the
+          page inside it arrive together, so the chrome does not paint and then
+          wait for its contents. */}
       <Route
         element={
           <RequireAuth>
-            <AppShell />
+            <Suspense fallback={<RouteFallback />}>
+              <AppShell />
+            </Suspense>
           </RequireAuth>
         }
       >

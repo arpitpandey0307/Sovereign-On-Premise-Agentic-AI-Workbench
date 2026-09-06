@@ -1,16 +1,13 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * A raised panel, from the `front` design system (`.card`): panel-2 ground, a
+ * hairline border, 18/20 padding baked in. Pass `p-0` to opt out of the
+ * padding when a card wraps its own full-bleed content (a table, a header).
+ */
 export function Card({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn(
-        "rounded-[var(--radius)] border border-subtle bg-panel",
-        className,
-      )}
-      {...rest}
-    />
-  );
+  return <div className={cn("card", className)} {...rest} />;
 }
 
 export function CardHeader({
