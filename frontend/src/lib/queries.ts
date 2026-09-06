@@ -29,6 +29,7 @@ import type {
   Sovereignty,
   SystemStatus,
   Task,
+  TaskReceipt,
   ToolDescriptor,
 } from "@/lib/types";
 
@@ -199,6 +200,21 @@ export function useTaskExecution(id: string, options?: Options<unknown>) {
   return useQuery({
     queryKey: keys.taskExecution(id),
     queryFn: () => api.get(`/api/v1/tasks/${id}/execution`),
+    enabled: Boolean(id),
+    ...LIVE,
+    ...options,
+  });
+}
+
+/**
+ * The task receipt: inputs, models, tools, sources, artifacts and security
+ * events, each line derived from the audit ledger as the work happened rather
+ * than summarised afterwards by the thing being audited.
+ */
+export function useTaskReceipt(id: string, options?: Options<TaskReceipt>) {
+  return useQuery({
+    queryKey: keys.taskReceipt(id),
+    queryFn: () => api.get<TaskReceipt>(`/api/v1/tasks/${id}/receipt`),
     enabled: Boolean(id),
     ...LIVE,
     ...options,

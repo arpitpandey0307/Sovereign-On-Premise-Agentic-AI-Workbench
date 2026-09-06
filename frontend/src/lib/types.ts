@@ -181,3 +181,29 @@ export type ToolDescriptor = {
   risk_level: "low" | "medium" | "high";
   requires_approval: boolean;
 };
+
+/**
+ * The task receipt. Every field is derived from the audit ledger as the work
+ * happened. The two that matter most for the product's argument are
+ * `external_calls` and `sovereignty` -- shown against a real completed task,
+ * they are the most convincing artefact it has.
+ *
+ * Typed permissively: the backend owns the exact shape and may carry more, but
+ * these are the fields the trace screen reads.
+ */
+export type TaskReceipt = {
+  task_id?: string;
+  status?: string;
+  started_at?: string;
+  finished_at?: string;
+  duration_ms?: number;
+  inputs?: Array<{ kind: string; name: string; id?: string }>;
+  models_used?: string[];
+  tools_used?: string[];
+  sources?: Array<{ document_name: string; page?: number | null }>;
+  artifacts?: Array<{ id: string; filename: string; mime_type?: string; size_bytes?: number }>;
+  security_events?: Array<{ kind: string; detail: string; at?: string }>;
+  external_calls?: number;
+  sovereignty?: string;
+  [key: string]: unknown;
+};

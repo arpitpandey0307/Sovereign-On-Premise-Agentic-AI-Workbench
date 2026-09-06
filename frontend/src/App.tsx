@@ -20,6 +20,15 @@ const Workspaces = lazy(() =>
 const Dashboard = lazy(() =>
   import("@/pages/Dashboard").then((m) => ({ default: m.Dashboard })),
 );
+const Workbench = lazy(() =>
+  import("@/pages/Workbench").then((m) => ({ default: m.Workbench })),
+);
+const Tasks = lazy(() =>
+  import("@/pages/Tasks").then((m) => ({ default: m.Tasks })),
+);
+const TaskTrace = lazy(() =>
+  import("@/pages/TaskTrace").then((m) => ({ default: m.TaskTrace })),
+);
 const Placeholder = lazy(() =>
   import("@/pages/Placeholder").then((m) => ({ default: m.Placeholder })),
 );
@@ -95,14 +104,9 @@ export default function App() {
         }
       >
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route
-          path="/workbench"
-          element={<Placeholder name="The AI Workbench" part="Part 03" />}
-        />
-        <Route
-          path="/tasks"
-          element={<Placeholder name="Tasks" part="Part 03" />}
-        />
+        <Route path="/workbench" element={<Workbench />} />
+        <Route path="/tasks" element={<Tasks />} />
+        <Route path="/tasks/:id" element={<TaskTrace />} />
         <Route
           path="/documents"
           element={<Placeholder name="Documents" part="Part 04" />}
