@@ -1,5 +1,6 @@
 # Local-only planning and agent context. Never committed.
 context-backend/
+frontend context/
 CLAUDE.md
 .claude/
 
