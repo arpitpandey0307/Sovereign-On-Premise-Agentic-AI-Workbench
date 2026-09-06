@@ -150,7 +150,9 @@ describe("error descriptions", () => {
       "payload_too_large",
       "unsupported_media_type",
       "validation_error",
+      "bad_request",
       "too_many_attempts",
+      "rate_limited",
       "upstream_timeout",
       "network_error",
       "internal_error",
@@ -161,6 +163,17 @@ describe("error descriptions", () => {
       expect(title.length).toBeGreaterThan(0);
       expect(detail.length).toBeGreaterThan(0);
     }
+  });
+
+  it("says how long to wait when the backend says so", () => {
+    // "Too many attempts" without a number leaves guessing as the only
+    // option, and the backend already sends the answer.
+    const { detail } = describeError(
+      new ApiError("too_many_attempts", "throttled", 429, {
+        retry_after_seconds: 90,
+      }),
+    );
+    expect(detail).toMatch(/2 minutes/);
   });
 
   it("never leaks a raw internal error to the user", () => {

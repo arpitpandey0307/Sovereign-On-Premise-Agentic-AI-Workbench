@@ -7,6 +7,7 @@
  */
 
 const TOKEN_KEY = "sovereign.token";
+const EXPIRY_KEY = "sovereign.token.expires";
 
 /** The backend's error envelope, which is the same for every failure. */
 export class ApiError extends Error {
@@ -45,16 +46,37 @@ export const tokenStore = {
       return null; // private mode, or storage disabled by policy
     }
   },
-  set(token: string): void {
+  set(token: string, expiresAt?: string): void {
     try {
       sessionStorage.setItem(TOKEN_KEY, token);
+      // Kept beside the token so a page reload can tell an expired session
+      // from a valid one before spending a request to find out.
+      if (expiresAt) sessionStorage.setItem(EXPIRY_KEY, expiresAt);
     } catch {
       /* the session simply will not survive a reload; not fatal */
+    }
+  },
+  /**
+   * When the server says this token stops working.
+   *
+   * Advisory only: the backend decides, and a clock that disagrees changes
+   * nothing about whether a call is accepted. It exists so the interface can
+   * warn before the session ends instead of failing mid-sentence.
+   */
+  expiresAt(): Date | null {
+    try {
+      const raw = sessionStorage.getItem(EXPIRY_KEY);
+      if (!raw) return null;
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    } catch {
+      return null;
     }
   },
   clear(): void {
     try {
       sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(EXPIRY_KEY);
     } catch {
       /* nothing to do */
     }
@@ -207,6 +229,13 @@ export const api = {
   },
 };
 
+function formatWait(seconds: number): string {
+  const whole = Math.ceil(seconds);
+  if (whole < 60) return `${whole} second${whole === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(whole / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
 /** A message a person can act on, for each error the backend actually returns. */
 export function describeError(error: unknown): { title: string; detail: string } {
   if (!(error instanceof ApiError)) {
@@ -243,8 +272,21 @@ export function describeError(error: unknown): { title: string; detail: string }
         title: "Check the form",
         detail: "One or more fields need attention.",
       };
+    case "bad_request":
+      return { title: "That request could not be used", detail: error.message };
+    // The login throttle answers with `too_many_attempts` and carries the
+    // wait; a plain 429 anywhere else answers with `rate_limited`. Both need
+    // to say when to try again, or the only remaining option is guessing.
     case "too_many_attempts":
-      return { title: "Too many attempts", detail: error.message };
+    case "rate_limited": {
+      const wait = Number(error.details.retry_after_seconds);
+      return {
+        title: "Too many attempts",
+        detail: Number.isFinite(wait) && wait > 0
+          ? `Wait ${formatWait(wait)} before trying again.`
+          : error.message,
+      };
+    }
     case "upstream_timeout":
       return {
         title: "The model runtime did not respond",

@@ -7,37 +7,18 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { SovereigntyBadge } from "@/components/shell/SovereigntyBadge";
 import { AuthProvider } from "@/lib/auth";
 import { tokenStore } from "@/lib/api";
-import type { Permissions, Role, Sovereignty, User } from "@/lib/types";
-
-const ENGINEER_PERMISSIONS = [
-  "task:read",
-  "task:create",
-  "document:read",
-  "document:search",
-  "artifact:download",
-  "model:read",
-  "conversation:read",
-  "conversation:write",
-  "file:read",
-  "file:upload",
-];
-
-const SECURITY_PERMISSIONS = ["model:read", "system:read", "audit:read", "security:read"];
+import { permissionsFor } from "@/test/roles";
+import type { Role, Sovereignty, User } from "@/lib/types";
 
 /** Stand up the shell with a given role, mocking only the network. */
-function renderWithRole(roles: Role[], permissions: string[]) {
+function renderWithRole(roles: Role[]) {
   const user: User = {
     id: "u1",
     email: "a@b.local",
     name: "Arpit Pandey",
     roles,
   };
-  const perms: Permissions = {
-    roles,
-    clearance: roles.includes("SECURITY_ADMIN") ? "PUBLIC" : "CONFIDENTIAL",
-    readable_classifications: [],
-    permissions,
-  };
+  const perms = permissionsFor(roles);
 
   tokenStore.set("test-token");
   vi.stubGlobal(
@@ -71,7 +52,7 @@ function renderWithRole(roles: Role[], permissions: string[]) {
 
 describe("the sidebar", () => {
   it("shows the workbench and documents to an engineer", async () => {
-    renderWithRole(["ENGINEER"], ENGINEER_PERMISSIONS);
+    renderWithRole(["ENGINEER"]);
 
     expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
     expect(screen.getByText("Documents")).toBeInTheDocument();
@@ -81,7 +62,7 @@ describe("the sidebar", () => {
   it("locks the security centre for an engineer rather than hiding it", async () => {
     // Knowing the system *has* oversight is part of what the product argues,
     // so the item stays visible and disabled.
-    renderWithRole(["ENGINEER"], ENGINEER_PERMISSIONS);
+    renderWithRole(["ENGINEER"]);
 
     const item = await screen.findByTitle(/Security Center/i);
     expect(item).toHaveAttribute("aria-disabled", "true");
@@ -90,7 +71,7 @@ describe("the sidebar", () => {
   it("hides the corpus from a security administrator", async () => {
     // SECURITY_ADMIN oversees the system without reading its contents. That
     // is deliberate, and the navigation has to reflect it.
-    renderWithRole(["SECURITY_ADMIN"], SECURITY_PERMISSIONS);
+    renderWithRole(["SECURITY_ADMIN"]);
 
     await screen.findByText("Dashboard");
     expect(screen.queryByText("Documents")).not.toBeInTheDocument();
@@ -99,10 +80,59 @@ describe("the sidebar", () => {
   });
 
   it("gives a security administrator the security centre unlocked", async () => {
-    renderWithRole(["SECURITY_ADMIN"], SECURITY_PERMISSIONS);
+    renderWithRole(["SECURITY_ADMIN"]);
 
     const link = await screen.findByRole("link", { name: /Security Center/i });
     expect(link).toBeInTheDocument();
+  });
+
+  // An analyst and a manager differ from an engineer in clearance, not in
+  // navigation. Asserting that keeps a future permission change from quietly
+  // removing a screen from a role that is supposed to have it.
+  it.each([["ANALYST"], ["MANAGER"]] as const)(
+    "gives %s the same working surface as an engineer",
+    async (role) => {
+      renderWithRole([role]);
+
+      expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
+      expect(screen.getByText("Documents")).toBeInTheDocument();
+      expect(screen.getByText("Tasks")).toBeInTheDocument();
+      expect(screen.getByText("Artifacts")).toBeInTheDocument();
+      // Neither role oversees the system, so the centre stays locked.
+      expect(screen.getByTitle(/Security Center/i)).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    },
+  );
+
+  it("gives an administrator both the work surface and oversight", async () => {
+    // ADMIN is the only role holding both halves, which makes it the one that
+    // would hide a regression in either.
+    renderWithRole(["ADMIN"]);
+
+    expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
+    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Security Center/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows every role its own label and the dashboard", async () => {
+    for (const role of [
+      "ENGINEER",
+      "ANALYST",
+      "MANAGER",
+      "ADMIN",
+      "SECURITY_ADMIN",
+    ] as const) {
+      const { unmount } = renderWithRole([role]);
+      expect(await screen.findByText("Dashboard")).toBeInTheDocument();
+      // No role may end up labelled "No role assigned", which is what a
+      // missing case in `roleLabel` would produce.
+      expect(screen.queryByText("No role assigned")).not.toBeInTheDocument();
+      unmount();
+    }
   });
 });
 

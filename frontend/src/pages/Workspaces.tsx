@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ClipboardList,
   Cpu,
@@ -22,7 +23,32 @@ import type { Role } from "@/lib/types";
  * which is the opposite of what this product argues.
  */
 
+/**
+ * The remembered workspace, stored by id rather than by path.
+ *
+ * The id is resolved against the current role on every visit, so a preference
+ * saved while someone held a role they have since lost cannot route them into
+ * a screen they may no longer use. localStorage rather than sessionStorage
+ * because this is a convenience with no security value, and it is meant to
+ * survive the sign-outs a shared workstation produces all day.
+ */
 const SKIP_KEY = "sovereign.workspace.skip";
+
+function readRemembered(): string | null {
+  try {
+    return localStorage.getItem(SKIP_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function forgetRemembered(): void {
+  try {
+    localStorage.removeItem(SKIP_KEY);
+  } catch {
+    /* nothing to forget */
+  }
+}
 
 type Workspace = {
   id: string;
@@ -70,16 +96,48 @@ const WORKSPACES: Workspace[] = [
 
 export function Workspaces() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const { roles, clearance } = useRole();
+  const [params] = useSearchParams();
+  // Ticked already if a preference is stored, so arriving here deliberately
+  // shows the current state and unticking it is how it gets cleared.
+  const [remember, setRemember] = useState(() => readRemembered() !== null);
 
-  const enter = (workspace: Workspace, remember: boolean) => {
+  // `?choose=1` is how someone gets back to this screen after remembering a
+  // choice. Without it the preference would be a one-way door.
+  const forced = params.get("choose") === "1";
+  const remembered = WORKSPACES.find((w) => w.id === readRemembered());
+  const stillPermitted =
+    remembered?.roles.some((role) => roles.includes(role)) ?? false;
+
+  // A remembered workspace the role can no longer enter is dropped rather
+  // than silently ignored, so the screen does not keep offering to forget a
+  // preference that is already inert.
+  //
+  // Guarded on `loading`, because permissions arrive asynchronously and an
+  // unguarded check runs once against an empty role list -- which looks
+  // exactly like "no longer permitted" and would delete a valid preference
+  // every time the page was opened.
+  useEffect(() => {
+    if (!loading && remembered && !stillPermitted) forgetRemembered();
+  }, [loading, remembered, stillPermitted]);
+
+  if (loading) return null;
+
+  if (!forced && remembered && stillPermitted) {
+    return <Navigate to={remembered.to} replace />;
+  }
+
+  const enter = (workspace: Workspace) => {
     if (remember) {
       try {
-        localStorage.setItem(SKIP_KEY, workspace.to);
+        localStorage.setItem(SKIP_KEY, workspace.id);
       } catch {
         /* the preference simply will not persist */
       }
+    } else {
+      // Unticking it on a later visit is how the preference is cleared.
+      forgetRemembered();
     }
     navigate(workspace.to, { replace: true });
   };
@@ -121,11 +179,21 @@ export function Workspaces() {
                 key={workspace.id}
                 workspace={workspace}
                 permitted={permitted}
-                onEnter={() => enter(workspace, false)}
+                onEnter={() => enter(workspace)}
               />
             );
           })}
         </div>
+
+        <label className="mt-5 flex w-fit cursor-pointer items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(event) => setRemember(event.target.checked)}
+            className="size-3.5 accent-[var(--color-accent)]"
+          />
+          Remember my choice and go straight there next time
+        </label>
 
         <p className="mt-8 text-[11px] text-tertiary">
           Selecting a workspace changes what this application shows you. It

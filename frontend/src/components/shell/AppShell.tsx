@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { Header } from "@/components/shell/Header";
+import { SessionNotice } from "@/components/shell/SessionNotice";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -48,6 +49,7 @@ export function AppShell() {
     <div className="flex h-screen overflow-hidden bg-base">
       <Sidebar collapsed={collapsed} onToggle={toggle} />
       <div className="flex min-w-0 flex-1 flex-col">
+        <SessionNotice />
         <Header title={title} />
         <main className="flex-1 overflow-y-auto">
           <Outlet />

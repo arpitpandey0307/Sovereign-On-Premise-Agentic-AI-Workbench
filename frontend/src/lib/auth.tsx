@@ -19,6 +19,14 @@ import {
 import { api, setUnauthorizedHandler, tokenStore } from "@/lib/api";
 import type { LoginResponse, Permissions, Role, User } from "@/lib/types";
 
+/**
+ * How long before expiry the interface says something.
+ *
+ * Long enough to finish a sentence and submit it, short enough that it is not
+ * a permanent fixture of the screen.
+ */
+const WARN_BEFORE_MS = 5 * 60_000;
+
 type AuthState = {
   user: User | null;
   permissions: Permissions | null;
@@ -26,6 +34,10 @@ type AuthState = {
   loading: boolean;
   /** Set when a session ended on its own rather than by signing out. */
   endedReason: string | null;
+  /** When the current session stops working, if the server said. */
+  expiresAt: Date | null;
+  /** True inside the warning window, so the shell can say so quietly. */
+  expiringSoon: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   clearEndedReason: () => void;
@@ -38,11 +50,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<Permissions | null>(null);
   const [loading, setLoading] = useState(true);
   const [endedReason, setEndedReason] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [expiringSoon, setExpiringSoon] = useState(false);
 
   const clear = useCallback(() => {
     tokenStore.clear();
     setUser(null);
     setPermissions(null);
+    setExpiresAt(null);
+    setExpiringSoon(false);
   }, []);
 
   // The API client calls this when the server rejects the session. Doing it
@@ -76,8 +92,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
+
+      // A token whose stated lifetime has already run out is discarded here
+      // rather than sent. The server would refuse it anyway; refusing it
+      // locally means the reason shown is "your session ended" instead of a
+      // pair of failed requests.
+      const stored = tokenStore.expiresAt();
+      if (stored && stored.getTime() <= Date.now()) {
+        clear();
+        setEndedReason("Your session expired. Sign in again to continue.");
+        setLoading(false);
+        return;
+      }
+
       try {
         await load();
+        if (!cancelled) setExpiresAt(stored);
       } catch {
         // A token that no longer works must land on the login screen, not
         // inside a shell full of failing requests.
@@ -98,12 +128,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { email, password },
         { anonymous: true },
       );
-      tokenStore.set(result.access_token);
+      tokenStore.set(result.access_token, result.expires_at);
       setEndedReason(null);
+      setExpiringSoon(false);
+      setExpiresAt(tokenStore.expiresAt());
       await load();
     },
     [load],
   );
+
+  /**
+   * Warn before the session ends, and end it cleanly when it does.
+   *
+   * Two timers rather than an interval: nothing happens between them, and a
+   * poll that runs every second for eight hours to notice one moment is waste
+   * the rest of the time. `setTimeout` clamps above ~24.8 days, which no
+   * session lifetime here approaches.
+   */
+  useEffect(() => {
+    if (!user || !expiresAt) return;
+
+    const remaining = expiresAt.getTime() - Date.now();
+
+    // Both are timeouts even when the moment has already passed, rather than
+    // one timeout and one immediate call. A zero delay fires on the next tick,
+    // which is soon enough for a warning about the next few minutes and keeps
+    // this effect from setting state during the render it belongs to.
+    const timers = [
+      window.setTimeout(
+        () => setExpiringSoon(true),
+        Math.max(0, remaining - WARN_BEFORE_MS),
+      ),
+      window.setTimeout(() => {
+        clear();
+        setEndedReason("Your session expired. Sign in again to continue.");
+      }, Math.max(0, remaining)),
+    ];
+
+    return () => timers.forEach(window.clearTimeout);
+  }, [user, expiresAt, clear]);
 
   const signOut = useCallback(async () => {
     try {
@@ -121,11 +184,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       permissions,
       loading,
       endedReason,
+      expiresAt,
+      expiringSoon,
       signIn,
       signOut,
       clearEndedReason: () => setEndedReason(null),
     }),
-    [user, permissions, loading, endedReason, signIn, signOut],
+    [
+      user,
+      permissions,
+      loading,
+      endedReason,
+      expiresAt,
+      expiringSoon,
+      signIn,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

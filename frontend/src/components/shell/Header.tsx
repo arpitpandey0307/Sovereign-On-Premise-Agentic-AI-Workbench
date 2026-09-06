@@ -1,4 +1,4 @@
-import { LogOut, Moon, Sun } from "lucide-react";
+import { LayoutGrid, LogOut, Moon, Sun } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
@@ -17,6 +17,17 @@ export function Header({ title }: { title?: string }) {
 
       <div className="flex items-center gap-2">
         <SovereigntyBadge />
+
+        {/* The way back to the selector once a workspace is remembered. */}
+        <button
+          type="button"
+          onClick={() => navigate("/workspaces?choose=1")}
+          aria-label="Switch workspace"
+          title="Switch workspace"
+          className="grid size-8 place-items-center rounded-[var(--radius)] text-tertiary transition-colors hover:bg-elevated hover:text-secondary"
+        >
+          <LayoutGrid className="size-4" aria-hidden />
+        </button>
 
         <button
           type="button"
