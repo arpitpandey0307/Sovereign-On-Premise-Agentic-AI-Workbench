@@ -42,6 +42,7 @@ import { ReasoningTimeline } from "@/components/workbench/ReasoningTimeline";
 import { Citations, Outputs } from "@/components/workbench/Sources";
 import { ConfidenceRow } from "@/components/workbench/ConfidenceRow";
 import { ModelRoutingCard } from "@/components/workbench/ModelRoutingCard";
+import { CodeExecution } from "@/components/workbench/CodeExecution";
 
 /** The classification a person tags an upload with, before it is ingested. */
 const CLASSIFICATIONS = [
@@ -496,7 +497,14 @@ function AssistantMessage({
         <ApprovalGate taskId={turn.taskId} pipeline={pipeline} onResumed={onResumed} />
       )}
 
-      {pipeline.error ? (
+      {/* A sandbox that could not run and code that ran and failed are
+          different things, and the difference matters. */}
+      {pipeline.sandboxFailed ? (
+        <div className="risk-callout danger">
+          The sandbox could not run the code — it did not execute.
+          {pipeline.sandboxDetail ? ` ${pipeline.sandboxDetail}` : ""}
+        </div>
+      ) : pipeline.error ? (
         <div className="risk-callout danger">{pipeline.error}</div>
       ) : pipeline.answer ? (
         <div className="body">{pipeline.answer}</div>
@@ -507,6 +515,10 @@ function AssistantMessage({
           The task finished without returning text. See the trace for what it
           did.
         </div>
+      )}
+
+      {pipeline.codeRun && !pipeline.sandboxFailed && (
+        <CodeExecution run={pipeline.codeRun} />
       )}
 
       {(pipeline.confidence != null ||

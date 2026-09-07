@@ -45,5 +45,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,
+    // Vitest owns the unit tests under src/. The Playwright hero-flow spec in
+    // e2e/ runs against a live backend and is driven by `npm run test:e2e`.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: ["e2e/**", "node_modules/**", "dist/**"],
   },
 });

@@ -119,6 +119,12 @@ export default function App() {
           path="/documents"
           element={<Placeholder name="Documents" part="Part 04" />}
         />
+        {/* The citation "View source" target. Part 04 replaces this with the
+            document viewer, opened at the cited page. */}
+        <Route
+          path="/documents/:id"
+          element={<Placeholder name="The Document Viewer" part="Part 04" />}
+        />
         <Route
           path="/knowledge"
           element={<Placeholder name="The Knowledge Base" part="Part 04" />}

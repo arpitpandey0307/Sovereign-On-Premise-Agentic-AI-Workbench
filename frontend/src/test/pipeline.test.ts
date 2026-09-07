@@ -156,6 +156,34 @@ describe("the pipeline reducer", () => {
     expect(replayedAllAtOnce).toEqual(live);
   });
 
+  it("separates code that ran and failed from a sandbox that could not run", () => {
+    // The generated code executed and exited non-zero. That is the program's
+    // fault, and the sandbox is fine.
+    const codeFailed = reducePipeline([
+      ev("task_created"),
+      ev("task_started"),
+      ev("plan_built", { steps: [1] }),
+      ev("tool_completed", { tool: "python", exit_code: 1, stderr: "Traceback: KeyError 'tag'" }),
+      ev("reasoning_completed", { output_text: "The script raised a KeyError." }),
+      ev("task_completed"),
+    ]);
+    expect(codeFailed.sandboxFailed).toBe(false);
+    expect(codeFailed.codeRun).toMatchObject({ exitCode: 1 });
+    expect(codeFailed.codeRun?.stderr).toMatch(/KeyError/);
+    expect(codeFailed.outcome).toBe("completed");
+
+    // The sandbox itself never started. The code did not run at all.
+    const sandboxDown = reducePipeline([
+      ev("task_created"),
+      ev("task_started"),
+      ev("plan_built", { steps: [1] }),
+      ev("task_failed", { component: "sandbox", message: "container failed to start" }),
+    ]);
+    expect(sandboxDown.sandboxFailed).toBe(true);
+    expect(sandboxDown.sandboxDetail).toMatch(/failed to start/);
+    expect(sandboxDown.outcome).toBe("failed");
+  });
+
   it("has nine stages, in the order the front timeline shows", () => {
     expect(STAGES.map((s) => s.id)).toEqual([
       "identity",

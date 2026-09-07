@@ -9,7 +9,8 @@
  */
 
 import { useState } from "react";
-import { Download, FileWarning } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Download, ExternalLink, FileWarning } from "lucide-react";
 import { api, describeError } from "@/lib/api";
 import type { ArtifactRef, Citation } from "@/lib/pipeline";
 import { formatBytes } from "@/lib/format";
@@ -26,16 +27,29 @@ export function Citations({ items }: { items: Citation[] }) {
             {c.page != null ? `  —  Page ${c.page}` : ""}
             {c.section ? `  ·  ${c.section}` : ""}
           </span>
-          {c.unsupported ? (
-            <span className="pill warn">
-              <FileWarning className="size-3" aria-hidden />
-              unsupported
-            </span>
-          ) : c.score != null ? (
-            <span className="mono" style={{ color: "var(--text-faint)", fontSize: "11px" }}>
-              {c.score.toFixed(2)}
-            </span>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {c.unsupported ? (
+              <span className="pill warn">
+                <FileWarning className="size-3" aria-hidden />
+                unsupported
+              </span>
+            ) : c.score != null ? (
+              <span className="mono" style={{ color: "var(--text-faint)", fontSize: "11px" }}>
+                {c.score.toFixed(2)}
+              </span>
+            ) : null}
+            {/* Opens the document viewer at the cited page (Part 04). Only a
+                citation that carries a document id can be opened. */}
+            {c.documentId && (
+              <Link
+                to={`/documents/${c.documentId}${c.page != null ? `?page=${c.page}` : ""}`}
+                className="btn btn-sm btn-accent"
+              >
+                <ExternalLink className="size-3.5" aria-hidden />
+                View source
+              </Link>
+            )}
+          </div>
         </div>
       ))}
     </div>

@@ -110,6 +110,19 @@ export type PipelineState = {
   outcome: "completed" | "failed" | "cancelled" | null;
   /** The failure message, if the run ended badly. */
   error: string | null;
+  /**
+   * A coding task's execution, if one ran. `exitCode` is the process's own
+   * exit status: `0` is success, non-zero is the code failing on its own
+   * terms. That is a different thing from `sandboxFailed`.
+   */
+  codeRun: { exitCode: number | null; stdout: string; stderr: string } | null;
+  /**
+   * True when the sandbox itself could not run the code — the container failed
+   * to start, the runtime was unavailable. The code never executed, so a
+   * non-zero exit code is not the story; this is.
+   */
+  sandboxFailed: boolean;
+  sandboxDetail: string | null;
 };
 
 export type Citation = {
@@ -152,6 +165,9 @@ export function emptyPipeline(): PipelineState {
     validation: null,
     outcome: null,
     error: null,
+    codeRun: null,
+    sandboxFailed: false,
+    sandboxDetail: null,
   };
 }
 
@@ -265,6 +281,34 @@ function detailFor(event: AgentEvent): string {
   }
 }
 
+/** Tools that run generated code, so a non-zero exit is the code's own fault. */
+const CODE_TOOLS = /^(python|python3|bash|sh|shell|node|code|run_code|exec)$/i;
+
+/** Words that mean the sandbox itself did not run, rather than the code failing. */
+const SANDBOX_TROUBLE =
+  /sandbox|container|could not (start|run)|failed to start|runtime unavailable|no runner|spawn/i;
+
+function looksLikeSandboxFailure(event: AgentEvent, data: Record<string, unknown>): boolean {
+  if (/sandbox/i.test(event.component)) return true;
+  const text = `${str(data.reason)} ${str(data.message)} ${str(data.detail)} ${str(data.error)}`;
+  return SANDBOX_TROUBLE.test(text) || /sandbox/i.test(event.event);
+}
+
+/** Pull a code run's exit status and output off a tool event, if it carries one. */
+function readCodeRun(
+  data: Record<string, unknown>,
+): { exitCode: number | null; stdout: string; stderr: string } | null {
+  const tool = str(data.tool) || str(data.name);
+  const hasExit =
+    "exit_code" in data || "returncode" in data || "exit" in data || "stdout" in data || "stderr" in data;
+  if (!CODE_TOOLS.test(tool) && !hasExit) return null;
+  return {
+    exitCode: num(data.exit_code ?? data.returncode ?? data.exit),
+    stdout: str(data.stdout ?? (data.output as unknown)),
+    stderr: str(data.stderr ?? data.error),
+  };
+}
+
 function applyStage(stages: Stage[], id: StageId, status: StageStatus, detail: string): Stage[] {
   const index = STAGE_ORDER.indexOf(id);
   if (index === -1) return stages;
@@ -288,6 +332,14 @@ export function applyEvent(state: PipelineState, event: AgentEvent): PipelineSta
     next.stages = applyStage(next.stages, mapping.stage, mapping.status, detailFor(event));
   }
 
+  // A code run's exit status and output, captured from the tool event. `0` is
+  // success; a non-zero exit is the generated code failing on its own terms,
+  // which is a different thing from the sandbox not running it.
+  if (event.event === "tool_completed" || event.event === "tool_called") {
+    const run = readCodeRun(data);
+    if (run) next.codeRun = { ...next.codeRun, ...run };
+  }
+
   // Failure: fail the stage that was in flight, and stop.
   if (FAILURE.has(event.event)) {
     const activeIndex = next.stages.findIndex((s) => s.status === "active");
@@ -299,7 +351,15 @@ export function applyEvent(state: PipelineState, event: AgentEvent): PipelineSta
           : s,
       );
     }
-    next.error = str(data.message) || str(data.reason) || `The task ${event.event.replace("task_", "")}.`;
+    const detail = str(data.message) || str(data.reason) || `The task ${event.event.replace("task_", "")}.`;
+    if (looksLikeSandboxFailure(event, data)) {
+      // The sandbox itself did not run. Say that, rather than blaming the code.
+      next.sandboxFailed = true;
+      next.sandboxDetail = detail;
+      next.error = next.error ?? detail;
+    } else {
+      next.error = detail;
+    }
   }
 
   // Answer text can arrive on reasoning_completed, artifact_generated, or the

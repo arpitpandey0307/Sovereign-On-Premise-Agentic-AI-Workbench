@@ -644,6 +644,22 @@ label.field-label,
    Extensions — surfaces the React app has that the mockups did not
    ========================================================================== */
 
+/* Code and captured stdout/stderr. Scrolls inside its own box; the page never
+   does. */
+.code-block {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font: 12px/1.55 var(--font-mono);
+  color: var(--text-dim);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
 /*
   The landing hero's entrance.
 
