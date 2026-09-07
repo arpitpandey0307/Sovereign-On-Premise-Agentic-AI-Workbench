@@ -1,5 +1,26 @@
 /** Small formatters, shared so the same value never renders two ways. */
 
+/**
+ * Parse a timestamp from the API.
+ *
+ * The backend sends two shapes. Anything it builds by hand carries an offset
+ * (`...+00:00`, or `Z` on the event stream), but values that come straight off
+ * a SQLAlchemy column are naive — `2026-09-07T14:36:01.746814` — and those are
+ * UTC.
+ *
+ * ECMAScript reads a date-time string with no offset as *local* time, so a task
+ * created seconds ago rendered as "6 hr ago" in India and would render in the
+ * future west of Greenwich. Every relative and absolute time in the product ran
+ * through that, which is why this is one function rather than a fix at each
+ * call site.
+ */
+export function parseApiDate(iso: string): Date {
+  // A date-only string ("2026-09-07") is already UTC by specification.
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const hasTime = iso.includes("T");
+  return new Date(hasTime && !hasOffset ? `${iso}Z` : iso);
+}
+
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "--";
   if (ms < 1000) return `${Math.round(ms)} ms`;
@@ -24,7 +45,7 @@ export function formatBytes(bytes: number): string {
 
 /** Absolute time for the audit log; relative time reads as evasive there. */
 export function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
+  const date = parseApiDate(iso);
   if (Number.isNaN(date.getTime())) return "--";
   return date.toLocaleString(undefined, {
     year: "numeric",
@@ -38,9 +59,11 @@ export function formatTimestamp(iso: string): string {
 }
 
 export function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
+  const then = parseApiDate(iso).getTime();
   if (Number.isNaN(then)) return "--";
   const seconds = Math.round((Date.now() - then) / 1000);
+  // Clock skew between the browser and the server can put a fresh record a
+  // second or two in the future. "in 2 seconds" reads as a fault.
   if (seconds < 45) return "just now";
   if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
   if (seconds < 86400) return `${Math.round(seconds / 3600)} hr ago`;

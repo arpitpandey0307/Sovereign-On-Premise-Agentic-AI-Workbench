@@ -353,29 +353,58 @@ def test_documents_are_not_visible_to_another_user(client, auth_headers, make_us
     assert listed.json()["items"] == []
 
 
-def test_reading_another_users_document_reports_not_found(
+def test_reading_a_document_above_your_clearance_reports_not_found(
     client, auth_headers, make_user, db
 ):
+    """The boundary on a document is clearance, not who uploaded it.
+
+    It was ownership, and that was too narrow: retrieval hands an engineer a
+    citation from a document somebody else uploaded, and following it then
+    reported the document missing -- the interface contradicting itself about
+    one file on two adjacent screens. What still has to hold is the clearance
+    boundary, which this pins from both sides.
+    """
     from app.db.repositories.documents import DocumentRepository
 
-    upload = client.post(
+    within = client.post(
         "/api/v1/files/upload",
         headers=auth_headers,
-        files={"file": ("mine.txt", io.BytesIO(b"Valve V-103 notes."), "text/plain")},
+        files={"file": ("shared.txt", io.BytesIO(b"Valve V-103 notes."), "text/plain")},
     )
-    document = DocumentRepository(db).get_by_file(UUID(upload.json()["id"]))
+    above = client.post(
+        "/api/v1/files/upload",
+        headers=auth_headers,
+        files={
+            "file": (
+                "board.txt",
+                io.BytesIO(b"HIGHLY CONFIDENTIAL\n\nBoard turnaround costs."),
+                "text/plain",
+            )
+        },
+    )
+    repo = DocumentRepository(db)
+    readable = repo.get_by_file(UUID(within.json()["id"]))
+    restricted = repo.get_by_file(UUID(above.json()["id"]))
 
-    other, password = make_user()
+    # An engineer tops out at CONFIDENTIAL.
+    other, password = make_user(["ENGINEER"])
     token = client.post(
         "/api/v1/auth/login", json={"email": other.email, "password": password}
     ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
-    response = client.get(
-        f"/api/v1/documents/{document.id}",
-        headers={"Authorization": f"Bearer {token}"},
+    # Within clearance, uploaded by somebody else: readable.
+    assert (
+        client.get(f"/api/v1/documents/{readable.id}", headers=headers).status_code
+        == 200
     )
-    # Not 403: confirming the document exists would itself be a disclosure.
-    assert response.status_code == 404
+
+    # Above clearance: not 403 -- confirming it exists would itself be a
+    # disclosure.
+    assert (
+        client.get(f"/api/v1/documents/{restricted.id}", headers=headers).status_code
+        == 404
+    )
 
 
 def test_equipment_endpoint_answers_from_the_relational_fallback(

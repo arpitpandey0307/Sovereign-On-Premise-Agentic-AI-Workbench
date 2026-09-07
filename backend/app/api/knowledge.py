@@ -12,7 +12,7 @@ than to the results.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -23,6 +23,7 @@ from app.db.models import User
 from app.db.repositories.documents import DocumentRepository
 from app.db.repositories.files import FileRepository
 from app.documents.ingestion import ingest_file
+from app.integrations import registry
 from app.knowledge.service import knowledge_service
 from app.schemas.api import (
     DocumentDetailResponse,
@@ -42,14 +43,27 @@ IngestUser = Annotated[User, Depends(require("document", "ingest"))]
 SystemUser = Annotated[User, Depends(require("system", "read"))]
 
 
-def _owned(db, document_id: UUID, user: User):
-    """Load a document the caller owns, or report it as absent.
+def _readable(db, document_id: UUID, user: User):
+    """Load a document the caller may read, or report it as absent.
+
+    Readable means owned *or* within the caller's clearance. Ownership alone
+    was too narrow: retrieval hands an engineer a citation from a document
+    somebody else uploaded, and following that citation then reported the
+    document as missing -- the interface contradicting itself about the same
+    file on two adjacent screens.
 
     Absent rather than forbidden on purpose: telling a caller that a document
     they may not see nevertheless exists is itself a disclosure.
     """
     document = DocumentRepository(db).get(document_id)
-    if document is None or document.owner_id != user.id:
+    if document is None:
+        raise NotFoundError("Document not found.")
+
+    if document.owner_id == user.id:
+        return document
+
+    permitted = registry.get_policy().readable_classifications(user.role_names)
+    if document.classification not in permitted:
         raise NotFoundError("Document not found.")
     return document
 
@@ -60,11 +74,22 @@ def list_documents(
     db: DbSession,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    scope: Annotated[Literal["mine", "corpus"], Query()] = "mine",
 ) -> Page[DocumentResponse]:
-    """The knowledge-base list: everything this user has had ingested."""
-    documents, total = DocumentRepository(db).list_for_owner(
-        user.id, limit=limit, offset=offset
-    )
+    """Documents this user can see.
+
+    ``mine`` is what they uploaded -- the "My Documents" screen, where deleting
+    and re-ingesting are theirs to do. ``corpus`` is the shared plant corpus
+    filtered to their clearance, which is what the knowledge base browses and
+    what retrieval already searches. Defaulting to ``mine`` keeps the narrower
+    answer the default.
+    """
+    repo = DocumentRepository(db)
+    if scope == "corpus":
+        permitted = registry.get_policy().readable_classifications(user.role_names)
+        documents, total = repo.list_readable(permitted, limit=limit, offset=offset)
+    else:
+        documents, total = repo.list_for_owner(user.id, limit=limit, offset=offset)
     return Page(
         items=[DocumentResponse.model_validate(document) for document in documents],
         total=total,
@@ -77,7 +102,7 @@ def list_documents(
 def get_document(
     document_id: UUID, user: ReadUser, db: DbSession
 ) -> DocumentDetailResponse:
-    document = _owned(db, document_id, user)
+    document = _readable(db, document_id, user)
     repo = DocumentRepository(db)
 
     record_audit(
@@ -121,7 +146,7 @@ def get_document_page(
     document_id: UUID, page_number: int, user: ReadUser, db: DbSession
 ) -> DocumentPageResponse:
     """One page of text, for the viewer a citation links into."""
-    _owned(db, document_id, user)
+    _readable(db, document_id, user)
     page = DocumentRepository(db).page(document_id, page_number)
     if page is None:
         raise NotFoundError("Page not found.")

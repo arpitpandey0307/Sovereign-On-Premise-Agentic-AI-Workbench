@@ -1372,3 +1372,25 @@ body {
 
 .sidebar-user .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .sidebar-user .avatar { overflow: hidden; }
+
+/* --- composer stacking and the disclaimer ------------------------------
+   The composer sits over the scrolling thread and its attach menu opens
+   upward into that space, so the strip has to be its own layer with a solid
+   ground. Without this the menu painted underneath the conversation and read
+   as transparent.
+
+   `.composer .disclaimer` belongs to the block ported from front/css/shared.css
+   and was clipped one line short of it.
+   ---------------------------------------------------------------------- */
+.composer {
+  position: relative;
+  z-index: 20;
+  background: var(--bg);
+}
+.attach-menu { z-index: 60; }
+.composer .disclaimer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+}

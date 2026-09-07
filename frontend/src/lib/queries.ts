@@ -161,12 +161,19 @@ export function useDocuments(
   page = 0,
   limit = 25,
   options?: Options<Page<DocumentSummary>>,
+  /**
+   * `mine` is what this user uploaded; `corpus` is the shared plant corpus
+   * filtered to their clearance. The knowledge base browses the corpus --
+   * scoping that list to the uploader made it claim nothing was indexed while
+   * search of the same corpus was returning citations beside it.
+   */
+  scope: "mine" | "corpus" = "mine",
 ) {
   return useQuery({
-    queryKey: keys.documents(page),
+    queryKey: [...keys.documents(page), scope],
     queryFn: () =>
       api.get<Page<DocumentSummary>>(
-        `/api/v1/documents?limit=${limit}&offset=${page * limit}`,
+        `/api/v1/documents?limit=${limit}&offset=${page * limit}&scope=${scope}`,
       ),
     ...LIVE,
     ...options,

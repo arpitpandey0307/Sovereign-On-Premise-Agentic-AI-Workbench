@@ -321,3 +321,106 @@ def test_empty_document_is_rejected_without_creating_a_record(
     # Ingestion fails on empty content; the upload survives and is marked.
     db.expire_all()
     assert DocumentRepository(db).get_by_file(UUID(file_id)) is None
+
+
+def test_the_corpus_is_shared_but_the_upload_list_is_not(client, auth_headers, make_user):
+    """Retrieval and the browse list have to agree about what exists.
+
+    Search runs across the whole corpus filtered by clearance, so a browse list
+    scoped to whoever uploaded the file made the knowledge base report nothing
+    indexed while citations from those same documents sat beside it -- the
+    interface contradicting itself about one file on two adjacent screens.
+
+    `scope=mine` stays the default and stays narrow: My Documents is where
+    someone deletes and re-ingests their own uploads.
+    """
+    upload = client.post(
+        "/api/v1/files/upload",
+        headers=auth_headers,
+        files={
+            "file": (
+                "shared_sop.txt",
+                b"INTERNAL USE ONLY\n\nIsolate pump P-101 before work.",
+                "text/plain",
+            )
+        },
+    )
+    assert upload.status_code == 201
+
+    # A second engineer, who uploaded nothing.
+    other, password = make_user(["ENGINEER"])
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": other.email, "password": password},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    mine = client.get("/api/v1/documents", headers=headers)
+    assert mine.status_code == 200
+    assert mine.json()["total"] == 0, "they uploaded nothing"
+
+    corpus = client.get("/api/v1/documents?scope=corpus", headers=headers)
+    assert corpus.status_code == 200
+    names = [item["filename"] for item in corpus.json()["items"]]
+    assert "shared_sop.txt" in names, "the corpus is the plant's, not the uploader's"
+
+
+def test_a_cleared_reader_can_open_a_document_somebody_else_uploaded(
+    client, auth_headers, make_user
+):
+    """Following a citation must not report the document as missing."""
+    upload = client.post(
+        "/api/v1/files/upload",
+        headers=auth_headers,
+        files={
+            "file": (
+                "cited.txt",
+                b"INTERNAL USE ONLY\n\nConfirm zero pressure at PT-2201.",
+                "text/plain",
+            )
+        },
+    ).json()
+
+    documents = client.get("/api/v1/documents", headers=auth_headers).json()["items"]
+    document = next(d for d in documents if d["file_id"] == upload["id"])
+
+    other, password = make_user(["ENGINEER"])
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": other.email, "password": password},
+    ).json()["access_token"]
+
+    response = client.get(
+        f"/api/v1/documents/{document['id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["filename"] == "cited.txt"
+
+
+def test_a_document_above_your_clearance_is_still_absent(client, auth_headers, make_user):
+    """Widening the corpus must not widen the clearance boundary with it."""
+    client.post(
+        "/api/v1/files/upload",
+        headers=auth_headers,
+        files={
+            "file": (
+                "board_note.txt",
+                b"HIGHLY CONFIDENTIAL\n\nBoard confidential turnaround costs.",
+                "text/plain",
+            )
+        },
+    )
+
+    # ENGINEER tops out at CONFIDENTIAL.
+    other, password = make_user(["ENGINEER"])
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": other.email, "password": password},
+    ).json()["access_token"]
+
+    corpus = client.get(
+        "/api/v1/documents?scope=corpus",
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert "board_note.txt" not in [item["filename"] for item in corpus["items"]]

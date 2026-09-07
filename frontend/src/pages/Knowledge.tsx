@@ -24,7 +24,10 @@ export function Knowledge() {
   const { isSecurityOnly } = useRole();
   const [query, setQuery] = useState("");
   const search = useKnowledgeSearch();
-  const documents = useDocuments(0, 100);
+  // The shared corpus, not this user's uploads: retrieval already searches
+  // across all of it, filtered by clearance, so the browse list beside the
+  // results has to be the same set.
+  const documents = useDocuments(0, 100, undefined, "corpus");
 
   if (isSecurityOnly) {
     return (

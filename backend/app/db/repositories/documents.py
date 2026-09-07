@@ -29,6 +29,32 @@ class DocumentRepository:
             self.db.scalars(select(Document).where(Document.id.in_(document_ids)))
         )
 
+    def list_readable(
+        self,
+        classifications: list[str],
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Document], int]:
+        """The shared corpus, filtered to what a clearance permits.
+
+        The plant's documents belong to the plant, not to whoever happened to
+        upload them: retrieval already searches across all of them, filtered by
+        clearance, so a browse list scoped to the uploader contradicts the
+        search results sitting next to it.
+        """
+        stmt = select(Document).where(
+            Document.status == "active",
+            Document.classification.in_(classifications),
+        )
+        total = self.db.scalar(
+            select(func.count()).select_from(stmt.subquery())
+        ) or 0
+        rows = self.db.scalars(
+            stmt.order_by(Document.created_at.desc()).limit(limit).offset(offset)
+        ).all()
+        return list(rows), total
+
     def list_for_owner(
         self, owner_id: UUID, *, limit: int = 50, offset: int = 0
     ) -> tuple[list[Document], int]:
