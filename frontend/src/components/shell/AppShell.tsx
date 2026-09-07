@@ -7,6 +7,8 @@ import { SessionNotice } from "@/components/shell/SessionNotice";
 const TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/workbench": "AI Workbench",
+  "/coding": "Coding Workspace",
+  "/approvals": "Approval Requests",
   "/documents": "Documents",
   "/knowledge": "Knowledge Base",
   "/tasks": "Tasks",

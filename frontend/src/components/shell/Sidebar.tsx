@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import {
   Boxes,
+  ClipboardCheck,
   FileText,
   FlaskConical,
   LayoutDashboard,
@@ -10,9 +11,11 @@ import {
   PanelLeft,
   Settings,
   Shield,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { roleLabel, useAuth, useRole } from "@/lib/auth";
+import type { Role } from "@/lib/types";
 
 type Item = {
   to: string;
@@ -20,14 +23,24 @@ type Item = {
   Icon: typeof LayoutDashboard;
   /** Permission required to reach it, checked against the policy engine. */
   needs?: [resource: string, action: string];
+  /** A stricter role gate, for items no single permission tuple captures. */
+  roles?: Role[];
 };
 
 const PRIMARY: Item[] = [
   { to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { to: "/workbench", label: "AI Workbench", Icon: FlaskConical, needs: ["task", "create"] },
+  { to: "/coding", label: "Coding Workspace", Icon: Terminal, needs: ["task", "create"] },
   { to: "/documents", label: "Documents", Icon: FileText, needs: ["document", "read"] },
   { to: "/knowledge", label: "Knowledge Base", Icon: Library, needs: ["document", "search"] },
   { to: "/tasks", label: "Tasks", Icon: ListChecks, needs: ["task", "read"] },
+  {
+    to: "/approvals",
+    label: "Approval Requests",
+    Icon: ClipboardCheck,
+    needs: ["task", "read"],
+    roles: ["MANAGER", "ADMIN", "SECURITY_ADMIN"],
+  },
   { to: "/artifacts", label: "Artifacts", Icon: Boxes, needs: ["artifact", "download"] },
   { to: "/models", label: "Models", Icon: Boxes, needs: ["model", "read"] },
 ];
@@ -45,11 +58,15 @@ export function Sidebar({
   onToggle: () => void;
 }) {
   const { user } = useAuth();
-  const { can } = useRole();
+  const { can, hasRole } = useRole();
 
   // Items the role cannot reach are hidden -- with one exception below.
   const visible = (items: Item[]) =>
-    items.filter((item) => !item.needs || can(item.needs[0], item.needs[1]));
+    items.filter(
+      (item) =>
+        (!item.needs || can(item.needs[0], item.needs[1])) &&
+        (!item.roles || hasRole(...item.roles)),
+    );
 
   return (
     <aside className={cn("sidebar", collapsed && "collapsed")}>

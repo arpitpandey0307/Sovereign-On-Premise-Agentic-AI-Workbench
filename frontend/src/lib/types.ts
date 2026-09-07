@@ -191,6 +191,22 @@ export type ToolDescriptor = {
  * Typed permissively: the backend owns the exact shape and may carry more, but
  * these are the fields the trace screen reads.
  */
+/**
+ * What the sandbox runner enforces, as it reports it. Every field is a
+ * verified property (`scripts/verify_sandbox.py` proves each), so the UI is
+ * reporting fact rather than aspiration. Typed permissively; the runner owns
+ * the shape.
+ */
+export type SandboxStatus = {
+  network_access?: "BLOCKED" | "ALLOWED" | string;
+  filesystem?: "ISOLATED" | string;
+  cpu_limit?: string;
+  memory_limit?: string;
+  max_execution_seconds?: number;
+  image?: string;
+  [key: string]: unknown;
+};
+
 export type TaskReceipt = {
   task_id?: string;
   status?: string;

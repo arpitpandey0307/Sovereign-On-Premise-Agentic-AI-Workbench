@@ -29,6 +29,12 @@ const Tasks = lazy(() =>
 const TaskTrace = lazy(() =>
   import("@/pages/TaskTrace").then((m) => ({ default: m.TaskTrace })),
 );
+const Approvals = lazy(() =>
+  import("@/pages/Approvals").then((m) => ({ default: m.Approvals })),
+);
+const Coding = lazy(() =>
+  import("@/pages/Coding").then((m) => ({ default: m.Coding })),
+);
 const Placeholder = lazy(() =>
   import("@/pages/Placeholder").then((m) => ({ default: m.Placeholder })),
 );
@@ -105,8 +111,10 @@ export default function App() {
       >
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/workbench" element={<Workbench />} />
+        <Route path="/coding" element={<Coding />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/tasks/:id" element={<TaskTrace />} />
+        <Route path="/approvals" element={<Approvals />} />
         <Route
           path="/documents"
           element={<Placeholder name="Documents" part="Part 04" />}

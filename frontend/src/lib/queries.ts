@@ -26,6 +26,7 @@ import type {
   Page,
   Permissions,
   SearchResponse,
+  SandboxStatus,
   Sovereignty,
   SystemStatus,
   Task,
@@ -299,5 +300,40 @@ export function usePreviewRouting() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       api.post<Record<string, unknown>>("/api/v1/models/route", body),
+  });
+}
+
+// --- internal status (ADMIN / SECURITY_ADMIN) ----------------------------------
+
+/**
+ * What the sandbox actually enforces, reported by the runner itself.
+ *
+ * `/internal/*` is administrator-only, so a non-oversight role gets a 403 here;
+ * the screen renders that as "available to administrators", not as an error.
+ */
+export function useSandboxStatus(options?: Options<SandboxStatus>) {
+  return useQuery({
+    queryKey: keys.sandboxStatus,
+    queryFn: () => api.get<SandboxStatus>("/internal/sandbox/status"),
+    staleTime: 60_000,
+    ...options,
+  });
+}
+
+export function useModelHealth(options?: Options<Record<string, unknown>>) {
+  return useQuery({
+    queryKey: keys.modelHealth,
+    queryFn: () => api.get<Record<string, unknown>>("/internal/models/health"),
+    staleTime: 30_000,
+    ...options,
+  });
+}
+
+export function useKnowledgeStatus(options?: Options<Record<string, unknown>>) {
+  return useQuery({
+    queryKey: keys.knowledgeStatus,
+    queryFn: () => api.get<Record<string, unknown>>("/internal/knowledge/status"),
+    staleTime: 30_000,
+    ...options,
   });
 }

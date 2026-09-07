@@ -23,10 +23,12 @@ import {
 } from "lucide-react";
 import { describeError } from "@/lib/api";
 import { greeting, formatRelative } from "@/lib/format";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useRole } from "@/lib/auth";
 import {
   useCreateConversation,
   useCreateTask,
+  useKnowledgeStatus,
+  useModelHealth,
   useSystemStatus,
   useTasks,
 } from "@/lib/queries";
@@ -191,20 +193,49 @@ export function Dashboard() {
   );
 }
 
+/** Read the first present numeric field, for the loosely-typed /internal bags. */
+function pluckNumber(
+  bag: Record<string, unknown> | undefined,
+  keys: string[],
+): number | null {
+  if (!bag) return null;
+  for (const key of keys) {
+    const value = bag[key];
+    const n = typeof value === "string" ? Number(value) : value;
+    if (typeof n === "number" && Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function SystemStatusPanel() {
+  const { isOversight } = useRole();
   const { data, isLoading, isError, error, refetch } = useSystemStatus();
+  // Only oversight roles may read the internal endpoints; for everyone else
+  // these stay disabled rather than firing a guaranteed 403.
+  const modelHealth = useModelHealth({ enabled: isOversight, retry: false });
+  const knowledge = useKnowledgeStatus({ enabled: isOversight, retry: false });
 
   if (isError) return <ErrorState error={error} onRetry={() => refetch()} />;
   if (isLoading || !data) {
-    return (
-      <p className="loading-note">Reading system status…</p>
-    );
+    return <p className="loading-note">Reading system status…</p>;
   }
 
   const liveParts = Object.values(data.parts).filter((v) => v === "live").length;
   const stubbed = Object.entries(data.parts)
     .filter(([, state]) => state !== "live")
     .map(([name]) => name);
+
+  const loadedModels = pluckNumber(modelHealth.data, [
+    "loaded",
+    "models_loaded",
+    "ready",
+  ]);
+  const indexedDocs = pluckNumber(knowledge.data, [
+    "documents",
+    "document_count",
+    "docs",
+  ]);
+  const chunks = pluckNumber(knowledge.data, ["chunks", "chunk_count"]);
 
   return (
     <div className="mt-3 stat-grid">
@@ -236,6 +267,25 @@ function SystemStatusPanel() {
         detail={stubbed.length ? `stub: ${stubbed.join(", ")}` : "all installed"}
         tone={stubbed.length ? "var(--warn-text)" : "var(--ok-text)"}
       />
+
+      {loadedModels != null && (
+        <Metric
+          Icon={Cpu}
+          label="Models loaded"
+          value={String(loadedModels)}
+          detail="On the local runtime"
+          tone="var(--text)"
+        />
+      )}
+      {indexedDocs != null && (
+        <Metric
+          Icon={HardDrive}
+          label="Knowledge"
+          value={`${indexedDocs} docs`}
+          detail={chunks != null ? `${chunks} chunks indexed` : "indexed"}
+          tone="var(--text)"
+        />
+      )}
     </div>
   );
 }
