@@ -47,6 +47,12 @@ const Knowledge = lazy(() =>
 const Artifacts = lazy(() =>
   import("@/pages/Artifacts").then((m) => ({ default: m.Artifacts })),
 );
+const Security = lazy(() =>
+  import("@/pages/Security").then((m) => ({ default: m.Security })),
+);
+const Models = lazy(() =>
+  import("@/pages/Models").then((m) => ({ default: m.Models })),
+);
 const Placeholder = lazy(() =>
   import("@/pages/Placeholder").then((m) => ({ default: m.Placeholder })),
 );
@@ -131,14 +137,8 @@ export default function App() {
         <Route path="/documents/:id" element={<DocumentViewer />} />
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/artifacts" element={<Artifacts />} />
-        <Route
-          path="/models"
-          element={<Placeholder name="The Model Center" part="Part 05" />}
-        />
-        <Route
-          path="/security"
-          element={<Placeholder name="The Security Center" part="Part 05" />}
-        />
+        <Route path="/models" element={<Models />} />
+        <Route path="/security" element={<Security />} />
         <Route
           path="/settings"
           element={<Placeholder name="Settings" part="Part 05" />}

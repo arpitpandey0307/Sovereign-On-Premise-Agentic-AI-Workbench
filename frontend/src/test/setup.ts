@@ -97,3 +97,23 @@ if (!window.URL.createObjectURL) {
   window.URL.createObjectURL = vi.fn(() => "blob:test");
   window.URL.revokeObjectURL = vi.fn();
 }
+
+// Recharts' ResponsiveContainer observes its box; jsdom has no layout engine
+// and no ResizeObserver. The stub lets the charts mount (at zero size) instead
+// of throwing, which is all a logic test needs -- the numbers are asserted from
+// the text equivalents beside every chart, not the SVG.
+if (!("ResizeObserver" in window)) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(window, "ResizeObserver", {
+    writable: true,
+    value: ResizeObserverStub,
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    writable: true,
+    value: ResizeObserverStub,
+  });
+}

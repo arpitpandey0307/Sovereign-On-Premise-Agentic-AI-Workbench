@@ -20,16 +20,20 @@ import {
 import { api } from "@/lib/api";
 import type {
   Artifact,
+  AuditPage,
   Conversation,
   DocumentPage,
   DocumentSummary,
   EquipmentGraph,
   FileRecord,
   ModelDescriptor,
+  NetworkEvent,
   Page,
   Permissions,
+  RoutingDecision,
   SearchResponse,
   SandboxStatus,
+  SecurityStatus,
   Sovereignty,
   SystemStatus,
   Task,
@@ -100,6 +104,43 @@ export function useSovereignty(options?: Options<Sovereignty>) {
     queryKey: keys.sovereignty,
     queryFn: () => api.get<Sovereignty>("/api/v1/security/sovereignty"),
     refetchInterval: 30_000,
+    ...options,
+  });
+}
+
+/** The whole policy in force. Read-only on this deployment. */
+export function useSecurityStatus(options?: Options<SecurityStatus>) {
+  return useQuery({
+    queryKey: ["security", "status"],
+    queryFn: () => api.get<SecurityStatus>("/api/v1/security/status"),
+    ...REFERENCE,
+    ...options,
+  });
+}
+
+export function useAudit(
+  filters: { event_type?: string; user?: string; limit?: number; offset?: number } = {},
+  options?: Options<AuditPage>,
+) {
+  const params = new URLSearchParams();
+  if (filters.event_type) params.set("event_type", filters.event_type);
+  if (filters.user) params.set("user", filters.user);
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return useQuery({
+    queryKey: keys.audit(filters as Record<string, unknown>),
+    queryFn: () => api.get<AuditPage>(`/api/v1/security/audit?${params}`),
+    ...LIVE,
+    ...options,
+  });
+}
+
+export function useNetworkEvents(options?: Options<{ items: NetworkEvent[] }>) {
+  return useQuery({
+    queryKey: keys.networkEvents,
+    queryFn: () =>
+      api.get<{ items: NetworkEvent[] }>("/api/v1/security/network-events"),
+    ...LIVE,
     ...options,
   });
 }
@@ -382,7 +423,19 @@ export function useTools(options?: Options<{ tools: ToolDescriptor[] }>) {
 export function usePreviewRouting() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api.post<Record<string, unknown>>("/api/v1/models/route", body),
+      api.post<RoutingDecision>("/api/v1/models/route", body),
+  });
+}
+
+/** Re-seed the model registry from the catalogue and reconcile with the runtime. */
+export function useRefreshRegistry() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/internal/models/refresh"),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.models });
+      client.invalidateQueries({ queryKey: keys.modelHealth });
+    },
   });
 }
 

@@ -86,6 +86,75 @@ export type Page<T> = {
   offset: number;
 };
 
+/** One outbound connection the egress monitor observed. */
+export type NetworkEvent = {
+  kind: string;
+  host: string;
+  port: number;
+  task_id: string | null;
+  at: string;
+};
+
+/**
+ * One line of the audit ledger. Denials (`PERMISSION_DENIED`, `TOOL_DENIED`,
+ * `EXTERNAL_CALL_ATTEMPTED`) are the entries that prove the controls are live,
+ * so the screen makes them prominent. Typed permissively.
+ */
+export type AuditEvent = {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  component: string;
+  action: string;
+  user_email?: string | null;
+  user_id?: string | null;
+  task_id?: string | null;
+  decision?: string | null;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+/** The audit page carries the filter menu with it, so the two cannot drift. */
+export type AuditPage = Page<AuditEvent> & { known_event_types: string[] };
+
+/**
+ * The whole policy in force, from `GET /api/v1/security/status`. Read-only on
+ * this deployment — policy lives in configuration, not a store. Permissive.
+ */
+export type SecurityStatus = {
+  classification_levels?: Array<{
+    level: Classification;
+    max_tool_risk?: string;
+    requires_approval?: boolean;
+    local_models_only?: boolean;
+    artifact_storage?: string;
+  }>;
+  roles?: Array<{
+    role: Role;
+    clearance: Classification | "none";
+    readable_classifications: Classification[];
+  }>;
+  [key: string]: unknown;
+};
+
+/**
+ * What `POST /api/v1/models/route` returns — the router's reasoning without
+ * running anything: what each of the four stages considered and rejected, the
+ * score breakdown for survivors, and the fallback chain. Permissive.
+ */
+export type RoutingDecision = {
+  selected?: string;
+  task_type?: string;
+  stages?: Array<{
+    stage: string;
+    considered?: string[];
+    rejected?: Array<{ model: string; reason: string }>;
+    survivors?: Array<{ model: string; score?: number; breakdown?: Record<string, number> }>;
+  }>;
+  fallback_chain?: string[];
+  [key: string]: unknown;
+};
+
 export type Task = {
   task_id: string;
   id: string;
