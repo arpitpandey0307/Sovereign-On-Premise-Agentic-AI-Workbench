@@ -53,8 +53,11 @@ const Security = lazy(() =>
 const Models = lazy(() =>
   import("@/pages/Models").then((m) => ({ default: m.Models })),
 );
-const Placeholder = lazy(() =>
-  import("@/pages/Placeholder").then((m) => ({ default: m.Placeholder })),
+const Settings = lazy(() =>
+  import("@/pages/Settings").then((m) => ({ default: m.Settings })),
+);
+const Profile = lazy(() =>
+  import("@/pages/Profile").then((m) => ({ default: m.Profile })),
 );
 
 /** Held while a route chunk arrives. */
@@ -139,14 +142,8 @@ export default function App() {
         <Route path="/artifacts" element={<Artifacts />} />
         <Route path="/models" element={<Models />} />
         <Route path="/security" element={<Security />} />
-        <Route
-          path="/settings"
-          element={<Placeholder name="Settings" part="Part 05" />}
-        />
-        <Route
-          path="/profile"
-          element={<Placeholder name="Profile" part="Part 05" />}
-        />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/profile" element={<Profile />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
