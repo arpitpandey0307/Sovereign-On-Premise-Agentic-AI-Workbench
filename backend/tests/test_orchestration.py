@@ -602,3 +602,97 @@ def test_a_conversational_task_answers_without_retrieval(client, auth_headers):
     # No corpus search, and so no sources to cite.
     assert "knowledge.search" not in (execution.get("tools") or [])
     assert not execution.get("sources")
+
+
+# --- computing figures rather than reasoning about them --------------------
+
+
+def test_a_calculation_request_plans_the_calculate_step():
+    from app.orchestration.planner import analyse
+
+    requirements, _ = analyse(
+        "Calculate the mean PT-2201 pressure over the first 90 days.",
+        has_inputs=True,
+    )
+    assert "calculation" in requirements
+
+
+def test_the_graph_has_a_node_for_every_step_it_plans():
+    """The plan must not name a step nothing performs.
+
+    The planner advertised "compute figures exactly, in the sandbox" while the
+    graph had no `calculate` node, so the plan shown to the operator described
+    work the system never did. Anything the planner can put in a plan has to
+    exist as a node.
+    """
+    from app.orchestration import graph as graph_module
+    from app.orchestration.planner import plan_steps
+
+    planned = {
+        entry["step"]
+        for entry in plan_steps(
+            ["reasoning", "retrieval", "calculation", "artifact_generation"], "docx"
+        )
+    }
+    for name in planned:
+        assert hasattr(graph_module, name), f"planned step {name!r} has no node"
+
+
+def test_a_request_to_report_a_figure_does_not_build_a_document():
+    """"Report the difference" means tell me, not produce a file.
+
+    Matching the bare noun turned a calculation into a Word document, which
+    then failed validation on a citation the model had to invent to fill it.
+    A deliverable is asked for with a verb.
+    """
+    from app.orchestration.planner import analyse
+
+    for request in (
+        "Calculate the mean PT-2201 pressure and report the difference.",
+        "Summarise the overdue HAZOP action items across Unit 3.",
+        "Which valve isolates P-101?",
+    ):
+        _, artifact = analyse(request, has_inputs=False)
+        assert artifact == "", request
+
+
+def test_a_request_that_does_ask_for_a_document_still_gets_one():
+    from app.orchestration.planner import analyse
+
+    for request, expected in (
+        ("Review the report and prepare an approval note.", "docx"),
+        ("Write a report on the pump seal failure", "docx"),
+        ("Give me a spreadsheet of the readings", "xlsx"),
+        ("build a deck for the board", "pptx"),
+    ):
+        _, artifact = analyse(request, has_inputs=True)
+        assert artifact == expected, request
+
+
+def test_generated_code_is_taken_out_of_a_markdown_fence():
+    """Models wrap programs in fences however firmly you ask them not to."""
+    from app.orchestration.planner import _strip_fences
+
+    assert _strip_fences("```python\nprint(1)\n```") == "print(1)"
+    assert _strip_fences("```\nprint(1)\n```") == "print(1)"
+    assert _strip_fences("print(1)") == "print(1)"
+
+
+def test_computed_figures_lead_the_answer():
+    """A mean that was calculated must not be buried in prose about the data.
+
+    These are the only numbers in the answer that were computed rather than
+    described, which is exactly why they go first.
+    """
+    from app.artifacts.content import ApprovalNoteContent
+    from app.orchestration.graph import _as_prose
+
+    content = ApprovalNoteContent(
+        title="Readings review",
+        summary="The data spans February to June.",
+        findings=[],
+        recommendations=[],
+    )
+    prose = _as_prose(content, {"stdout": "Difference: 0.41 barg"})
+    assert prose.startswith("Difference: 0.41 barg")
+    assert "February" in prose

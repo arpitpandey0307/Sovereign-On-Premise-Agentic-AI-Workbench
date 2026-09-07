@@ -234,6 +234,8 @@ export type FileRecord = {
 export type DocumentSummary = {
   id: string;
   file_id: string;
+  /** Who uploaded it. Re-ingesting and deleting stay with the owner. */
+  owner_id: string;
   filename: string;
   mime_type: string;
   kind: string;

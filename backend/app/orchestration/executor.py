@@ -240,6 +240,9 @@ class LangGraphOrchestrator:
             # does not survive a restart.
             "answer": state.get("answer", ""),
             "conversational": bool(state.get("conversational")),
+            # The program the sandbox ran and what it printed, so a reopened
+            # trace shows the working and not just the conclusion.
+            "computation": state.get("computation", {}),
             "artifacts": state.get("artifacts", []),
             "validation": state.get("validation_results", {}),
             "errors": state.get("errors", []),

@@ -199,6 +199,10 @@ class DocumentResponse(BaseModel):
 
     id: UUID
     file_id: UUID
+    # Who uploaded it. The corpus is shared and readable by clearance, but
+    # re-ingesting and deleting stay with the owner, so a reader has to be
+    # able to tell which of those actions are theirs.
+    owner_id: UUID
     filename: str
     mime_type: str
     kind: str

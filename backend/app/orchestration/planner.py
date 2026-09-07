@@ -30,9 +30,25 @@ logger = logging.getLogger("workbench.planner")
 
 # Signals that a request wants a deliverable rather than an answer. Matched on
 # the request text, which is the only thing the user actually asked for.
+# A deliverable is asked for with a verb, not by mentioning a noun. "Report
+# the difference" and "summarise the findings" both mean *tell me*; only
+# "prepare a report" means produce a file.
+#
+# This function's own contract says guessing wrong towards "produce a
+# document" is the worse error, because it turns a question into a download --
+# and matching the bare noun did exactly that: a request to compute a mean and
+# report it built a Word document, which then failed validation on a citation
+# the model had to invent to fill it.
+_ARTIFACT_VERB = (
+    r"(?:write|prepare|produce|generate|create|draft|build|make|issue|compose)"
+)
+_ARTIFACT_NOUN = r"(?:approval note|note|report|memo|document|write[- ]?up|summary)"
+
 _ARTIFACT_WORDS = re.compile(
-    r"\b(approval note|note|report|memo|document|docx|word|"
-    r"summar[iy]|write up|write-up|draft)\b",
+    # "prepare an approval note", "write up a short report"
+    rf"\b{_ARTIFACT_VERB}\s+(?:up\s+)?(?:an?|the|a\s+short|me\s+an?)?\s*{_ARTIFACT_NOUN}\b"
+    # or an unambiguous file format
+    r"|\b(?:docx|word\s+document|\.docx)\b",
     re.I,
 )
 _SPREADSHEET_WORDS = re.compile(r"\b(spreadsheet|xlsx|excel|workbook|table of)\b", re.I)
@@ -176,6 +192,116 @@ def plan_steps(requirements: list[str], artifact_type: str) -> list[dict]:
             {"step": "validate_artifact", "why": "check it against the evidence"}
         )
     return steps
+
+
+CODE_SYSTEM = (
+    "You write short Python programs that compute an answer and print it.\n\n"
+    "Rules:\n"
+    "- Only the Python standard library is available. There is no pandas, no "
+    "numpy, and no network access.\n"
+    "- Read any data from the files named below, in the working directory.\n"
+    "- Print each result on its own line as 'Label: value unit'. What you "
+    "print is shown to the operator as the answer, so a bare number with "
+    "no label is not an acceptable result. For example:\n"
+    "      Mean discharge pressure, first 90 days: 12.44 barg\n"
+    "      Difference: 0.41 barg\n"
+    "  Print the figures asked for and nothing else -- no commentary, no "
+    "progress messages.\n"
+    "- Do not invent data. If a file does not contain what is needed, print "
+    "what is missing and exit.\n"
+    "- Reply with the program only: no prose, no markdown fences."
+)
+
+
+def _strip_fences(text: str) -> str:
+    """Take the program out of a markdown block, if the model wrapped one."""
+    body = text.strip()
+    if not body.startswith("```"):
+        return body
+    lines = body.splitlines()
+    # Drop the opening fence (with or without a language tag) and the closer.
+    lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def write_calculation_code(
+    db: Session,
+    *,
+    request: str,
+    filenames: list[str],
+    previews: dict[str, str] | None = None,
+    classification: str,
+    previous_error: str = "",
+    effort: str = "balanced",
+) -> tuple[str, str, str]:
+    """Ask the coding model for a program that computes the answer.
+
+    Routed to a *coding* model rather than the reasoning one: the registry
+    holds a model trained for this, and asking a general reasoner to emit
+    runnable Python is how you get prose with a code block in the middle.
+
+    ``previews`` carries the first few lines of each data file. Without them
+    the model is guessing at column names from the filename alone, and it
+    guesses wrong in the obvious way -- ``row['Date']`` against a header that
+    says ``date``. The program is going to read the file regardless, so
+    showing it the header first costs nothing and removes a whole class of
+    failure.
+
+    ``previous_error`` is the stderr from a failed attempt. Feeding it back is
+    the whole value of running code in a loop -- a program that crashed on a
+    missing column can be fixed from the traceback, and a model that never
+    sees the traceback will write the same program again.
+
+    Returns ``(code, model, error)``.
+    """
+    if filenames:
+        blocks = ["Files in the working directory:"]
+        for name in filenames:
+            blocks.append(f"\n{name}")
+            head = (previews or {}).get(name, "").strip()
+            if head:
+                blocks.append(
+                    "  first lines (the real column names are here, use them "
+                    "exactly):\n"
+                    + "\n".join(f"    {line}" for line in head.splitlines())
+                )
+        available = "\n".join(blocks)
+    else:
+        available = "No data files are attached; compute from the request alone."
+
+    prompt = f"{available}\n\nTask: {request}"
+    if previous_error:
+        prompt += (
+            "\n\nYour previous program failed with this error. Fix it:\n"
+            f"{previous_error[:1500]}"
+        )
+
+    outcome = run_sync(
+        model_service.generate(
+            db,
+            TaskRequirements(
+                task_type="code_generation",
+                model_type="coding",
+                required_capabilities=["code_generation"],
+                classification=classification,
+                estimated_context_tokens=max(512, len(prompt) // 3),
+                effort=effort,
+            ),
+            prompt=prompt,
+            system=CODE_SYSTEM,
+            max_tokens=1200,
+        )
+    )
+
+    if not outcome.succeeded or outcome.response is None:
+        return "", "", outcome.error or "no coding model was available"
+
+    code = _strip_fences(outcome.response.text or "")
+    if not code:
+        return "", outcome.model_used or "", "the model returned no code"
+    return code, outcome.model_used or "", ""
 
 
 CHAT_SYSTEM = (

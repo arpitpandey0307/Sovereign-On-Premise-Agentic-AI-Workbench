@@ -285,7 +285,8 @@ function detailFor(event: AgentEvent): string {
 }
 
 /** Tools that run generated code, so a non-zero exit is the code's own fault. */
-const CODE_TOOLS = /^(python|python3|bash|sh|shell|node|code|run_code|exec)$/i;
+const CODE_TOOLS =
+  /^(python(\.execute)?|python3|bash|sh|shell|node|code|run_code|exec)$/i;
 
 /** Words that mean the sandbox itself did not run, rather than the code failing. */
 const SANDBOX_TROUBLE =
@@ -451,6 +452,18 @@ export type TaskExecution = {
   request?: string;
   /** Prose the assistant wrote. The whole deliverable on a chat turn. */
   answer?: string;
+  /**
+   * What the sandbox computed: the program it ran and what that printed.
+   * Kept with the task, so reopening a run shows the working rather than
+   * only the conclusion.
+   */
+  computation?: {
+    code?: string;
+    stdout?: string;
+    error?: string;
+    model?: string;
+    attempts?: number;
+  };
   /** True when the turn was answered directly, without searching the corpus. */
   conversational?: boolean;
   /** Each planned step with the reason it is in the plan. */
@@ -489,6 +502,16 @@ export function mergeExecution(
   // The answer text, when the stream did not carry it -- and it never does
   // after a restart, because the backlog is held in memory.
   if (!next.answer && execution.answer) next.answer = execution.answer;
+
+  // Same for the sandbox run: the program and its output are on the record.
+  const computation = execution.computation;
+  if (!next.codeRun && computation && (computation.stdout || computation.error)) {
+    next.codeRun = {
+      exitCode: computation.error ? 1 : 0,
+      stdout: computation.stdout ?? "",
+      stderr: computation.error ?? "",
+    };
+  }
 
   if (next.citations.length === 0 && Array.isArray(execution.sources)) {
     next.citations = readCitations({ sources: execution.sources });

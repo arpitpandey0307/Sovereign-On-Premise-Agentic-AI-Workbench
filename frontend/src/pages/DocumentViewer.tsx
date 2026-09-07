@@ -24,6 +24,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, RefreshCw, ScanLine, Sparkles } from "lucide-react";
 import { useRole } from "@/lib/auth";
 import { useDocument, useDocumentPage, useReingest } from "@/lib/queries";
+import { useAuth } from "@/lib/auth";
 import { ClassificationBadge, StatusPill } from "@/components/ui/StatusPill";
 import { ErrorState } from "@/components/states/ErrorState";
 import { LoadingState } from "@/components/states/LoadingState";
@@ -50,6 +51,7 @@ export function DocumentViewer() {
 
   const doc = useDocument(id);
   const reingest = useReingest();
+  const { user } = useAuth();
 
   if (isSecurityOnly) {
     return (
@@ -75,6 +77,7 @@ export function DocumentViewer() {
   }
 
   const d = doc.data;
+  const isOwner = Boolean(user?.id) && d.owner_id === user?.id;
   const pageCount = Math.max(1, d.page_count || 1);
 
   return (
@@ -102,16 +105,25 @@ export function DocumentViewer() {
           ) : (
             <StatusPill tone="info">Indexed · text only</StatusPill>
           )}
-          <button
-            type="button"
-            className="btn btn-sm"
-            style={{ marginLeft: "auto" }}
-            disabled={reingest.isPending}
-            onClick={() => reingest.mutate(d.file_id)}
-          >
-            <RefreshCw className="size-3.5" aria-hidden />
-            Reingest
-          </button>
+          {/* The corpus is readable by clearance, but re-ingesting belongs to
+              whoever uploaded the file -- offering it to everyone put a button
+              on the screen that the server would refuse. */}
+          {isOwner ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ marginLeft: "auto" }}
+              disabled={reingest.isPending}
+              onClick={() => reingest.mutate(d.file_id)}
+            >
+              <RefreshCw className="size-3.5" aria-hidden />
+              Reingest
+            </button>
+          ) : (
+            <span className="hint" style={{ marginLeft: "auto" }}>
+              Uploaded by someone else
+            </span>
+          )}
         </div>
         {d.ingest_error && (
           <p className="error-note" style={{ marginTop: "10px" }}>

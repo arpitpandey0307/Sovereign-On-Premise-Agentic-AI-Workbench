@@ -207,7 +207,186 @@ def retrieve(state: TaskState) -> dict:
     }
 
 
-def _as_prose(content) -> str:
+MAX_CODE_ATTEMPTS = 2
+
+
+PREVIEW_LINES = 4
+PREVIEW_CHARS = 600
+
+
+def _preview(payload: bytes) -> str:
+    """The first few lines of a text-shaped file, for the code prompt."""
+    try:
+        text = payload[:8192].decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 - a binary file simply has no preview
+        return ""
+    lines = [line for line in text.splitlines() if line.strip()][:PREVIEW_LINES]
+    return "\n".join(lines)[:PREVIEW_CHARS]
+
+
+def _stage_inputs(state: TaskState) -> tuple[list[str], dict[str, str]]:
+    """Copy the task's attached files into its sandbox workspace.
+
+    The sandbox mounts the workspace, not the object store, so a file has to
+    be put there before a program can open it. Raw bytes rather than the
+    extracted text: a program computing over a CSV needs the CSV, not a prose
+    rendering of it.
+    """
+    from app.core.storage import storage
+    from app.db.repositories.files import FileRepository
+    from app.tools import workspace
+
+    staged: list[str] = []
+    previews: dict[str, str] = {}
+    file_ids = [UUID(value) for value in state.get("input_files") or []]
+    if not file_ids:
+        return staged, previews
+
+    with SessionLocal() as db:
+        repo = FileRepository(db)
+        for file_id in file_ids:
+            record = repo.get(file_id)
+            if record is None:
+                continue
+            try:
+                payload = storage.read(record.storage_path)
+                workspace.write(UUID(state["task_id"]), record.filename, payload)
+                staged.append(record.filename)
+                previews[record.filename] = _preview(payload)
+            except (OSError, workspace.WorkspaceError, ValueError):
+                # A file too large for the workspace, or missing from storage.
+                # The run continues without it and the program is told only
+                # about the files that are genuinely there.
+                continue
+    return staged, previews
+
+
+def calculate(state: TaskState) -> dict:
+    """Write a program, run it in the sandbox, and keep what it printed.
+
+    The planner has always listed this step -- "compute figures exactly, in
+    the sandbox" -- and nothing performed it, so the plan named a step the
+    system never took. This is that step.
+
+    Figures are computed rather than reasoned because a language model doing
+    arithmetic over a 10,000-row file is guessing, and a plant cannot act on a
+    guessed number. The program's stdout becomes evidence the reasoning step
+    is given; if the sandbox cannot run at all, that is reported as such and
+    the run continues without computed figures rather than inventing them.
+    """
+    context = _context(state)
+    staged, previews = _stage_inputs(state)
+
+    code = ""
+    model_id = ""
+    last_error = ""
+
+    for attempt in range(1, MAX_CODE_ATTEMPTS + 1):
+        with SessionLocal() as db:
+            code, model_id, failure = planner.write_calculation_code(
+                db,
+                request=state["request"],
+                filenames=staged,
+                previews=previews,
+                classification=state.get("classification", "INTERNAL"),
+                previous_error=last_error,
+                effort=state.get("effort", "balanced"),
+            )
+        if not code:
+            _emit(state, "calculation_skipped", {"reason": failure})
+            return {
+                "steps": [step("calculate", ok=False, reason=failure)],
+            }
+
+        _emit(
+            state,
+            "tool_called",
+            {"tool": "python.execute", "risk_level": "high", "attempt": attempt},
+        )
+        result = gateway.call(
+            "python.execute",
+            {"code": code, "input_files": staged},
+            context,
+        )
+
+        data = result.data or {}
+        stdout = str(data.get("stdout", ""))
+        stderr = str(data.get("stderr", ""))
+        exit_code = data.get("exit_code")
+
+        # The sandbox never started. That is not a failed calculation -- no
+        # arithmetic was attempted -- and saying so is the difference between
+        # "the code was wrong" and "nothing ran".
+        if data.get("status") == "unavailable" or (not result.ok and not stderr):
+            _emit(
+                state,
+                "tool_completed",
+                {
+                    "tool": "python.execute",
+                    "ok": False,
+                    "component": "sandbox",
+                    "detail": result.error or "the code sandbox is unavailable",
+                },
+            )
+            return {
+                "steps": [
+                    step("calculate", ok=False, reason=result.error, ran=False)
+                ],
+            }
+
+        _emit(
+            state,
+            "tool_completed",
+            {
+                "tool": "python.execute",
+                "ok": bool(result.ok),
+                "exit_code": exit_code,
+                "stdout": stdout[:4000],
+                "stderr": stderr[:2000],
+                "detail": result.detail,
+                "attempt": attempt,
+            },
+        )
+
+        if result.ok:
+            _emit(
+                state,
+                "calculation_completed",
+                {"model_id": model_id, "attempt": attempt, "output": stdout[:2000]},
+            )
+            return {
+                "computation": {
+                    "code": code,
+                    "stdout": stdout,
+                    "model": model_id,
+                    "attempts": attempt,
+                },
+                "selected_tools": ["python.execute"],
+                "steps": [
+                    step("calculate", model=model_id, attempt=attempt, ran=True)
+                ],
+            }
+
+        last_error = stderr or result.error
+
+    # Both attempts ran and both failed on their own terms. The failure is
+    # reported and the run continues: an answer without computed figures, and
+    # honest about it, beats an answer with figures nobody computed.
+    return {
+        "computation": {
+            "code": code,
+            "stdout": "",
+            "error": last_error,
+            "model": model_id,
+        },
+        "selected_tools": ["python.execute"],
+        "steps": [
+            step("calculate", ok=False, reason=last_error[:300], ran=True)
+        ],
+    }
+
+
+def _as_prose(content, computation: dict | None = None) -> str:
     """Render the model's structured findings as something a person reads.
 
     The reasoning step has always produced real prose -- a summary, findings
@@ -221,6 +400,14 @@ def _as_prose(content) -> str:
     same evidence the findings name.
     """
     parts: list[str] = []
+
+    # Computed figures lead. Someone who asked for a mean wants the number,
+    # not a paragraph about the data it came from -- and these are the only
+    # numbers in the answer that were calculated rather than described, so
+    # burying them among prose is the one thing not to do with them.
+    printed = ((computation or {}).get("stdout") or "").strip()
+    if printed:
+        parts.append(printed)
 
     summary = (getattr(content, "summary", "") or "").strip()
     if summary:
@@ -257,6 +444,17 @@ def reason(state: TaskState) -> dict:
         for extract in entry.get("input_extracts", [])
     )
 
+    # Anything the sandbox computed is given to the model as fact. It is put
+    # in with the document text rather than the evidence list because it is
+    # not a retrieved passage -- it is a figure this run produced, and the
+    # validator must not be able to mistake it for a citation.
+    computation = state.get("computation") or {}
+    if computation.get("stdout"):
+        document_text = (
+            f"--- computed in the sandbox ---\n{computation['stdout']}\n\n"
+            f"{document_text}"
+        ).strip()
+
     with SessionLocal() as db:
         content, model_id, failure = planner.draft_approval_note(
             db,
@@ -292,7 +490,7 @@ def reason(state: TaskState) -> dict:
             "classification": state.get("classification", "INTERNAL"),
         },
     )
-    answer = _as_prose(content)
+    answer = _as_prose(content, computation)
     _emit(
         state,
         "reasoning_completed",
@@ -561,6 +759,13 @@ def route_after_permissions(state: TaskState) -> str:
     return "converse" if state.get("conversational") else "analyse_inputs"
 
 
+def route_after_retrieval(state: TaskState) -> str:
+    """Compute figures before reasoning about them, when any were asked for."""
+    if state.get("status") == "failed":
+        return "reason"
+    return "calculate" if "calculation" in (state.get("requirements") or []) else "reason"
+
+
 def route_after_reason(state: TaskState) -> str:
     if state.get("status") == "failed":
         return "finalise"
@@ -595,6 +800,7 @@ def build_graph():
     workflow.add_node("retrieve", retrieve)
     workflow.add_node("reason", reason)
     workflow.add_node("converse", converse)
+    workflow.add_node("calculate", calculate)
     workflow.add_node("approval_gate", approval_gate)
     workflow.add_node("generate_artifact", generate_artifact)
     workflow.add_node("validate_artifact", validate_artifact)
@@ -618,7 +824,12 @@ def build_graph():
     workflow.add_edge("converse", "finalise")
     workflow.add_edge("analyse_inputs", "build_plan")
     workflow.add_edge("build_plan", "retrieve")
-    workflow.add_edge("retrieve", "reason")
+    workflow.add_conditional_edges(
+        "retrieve",
+        route_after_retrieval,
+        {"calculate": "calculate", "reason": "reason"},
+    )
+    workflow.add_edge("calculate", "reason")
     workflow.add_conditional_edges(
         "reason",
         route_after_reason,

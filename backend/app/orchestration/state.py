@@ -45,6 +45,9 @@ class TaskState(TypedDict, total=False):
     # Prose the assistant wrote back. Set on the conversational path, where
     # there is no artifact and the answer *is* the deliverable.
     answer: str
+    # What the sandbox computed: the program, its stdout, and how many
+    # attempts it took. Empty when nothing needed computing.
+    computation: dict
     # True when the turn was small talk or a general question rather than a
     # question about the plant's own records.
     conversational: bool
@@ -91,6 +94,7 @@ def initial_state(
         selected_tools=[],
         retrieved_sources=[],
         answer="",
+        computation={},
         conversational=False,
         intermediate_results=[],
         draft={},
