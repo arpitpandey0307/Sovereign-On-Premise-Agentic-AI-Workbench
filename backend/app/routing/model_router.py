@@ -46,6 +46,9 @@ class TaskRequirements(BaseModel):
     estimated_context_tokens: int = 2048
     needs_vision: bool = False
     needs_structured_output: bool = False
+    # How much thinking the request deserves: "low", "balanced" or "high".
+    # Biases the router towards a smaller or larger model; never excludes one.
+    effort: str = "balanced"
     # Set when re-routing after a failure, so the router does not hand back
     # the model that just failed.
     exclude_models: list[str] = Field(default_factory=list)

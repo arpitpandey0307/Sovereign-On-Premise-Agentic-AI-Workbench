@@ -8,7 +8,7 @@ Part 01's own API envelope.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
@@ -118,6 +118,9 @@ class TaskCreate(BaseModel):
     request_text: str = Field(min_length=1)
     task_type: str = Field(default="general", max_length=64)
     input_file_ids: list[UUID] = Field(default_factory=list)
+    # How much thinking this request deserves. Reaches the router, which biases
+    # towards a smaller or a larger model accordingly.
+    effort: Literal["low", "balanced", "high"] = "balanced"
 
 
 class TaskStepResponse(BaseModel):
@@ -146,6 +149,7 @@ class TaskResponse(BaseModel):
     user_id: UUID
     request_text: str
     task_type: str
+    effort: str = "balanced"
     status: TaskStatus
     input_file_ids: list[UUID] = []
     error_message: str | None = None

@@ -219,12 +219,13 @@ def test_failure_explains_which_stage_rejected_what(clean_registry, gpu_8gb):
 
 def test_weights_match_the_specification():
     assert WEIGHTS == {
-        "task_accuracy": 0.30,
+        "task_accuracy": 0.25,
         "capability_match": 0.20,
-        "context_fit": 0.15,
-        "latency": 0.10,
-        "resource_efficiency": 0.10,
-        "historical_success": 0.10,
+        "context_fit": 0.13,
+        "effort_fit": 0.12,
+        "latency": 0.08,
+        "resource_efficiency": 0.08,
+        "historical_success": 0.09,
         "reliability": 0.05,
     }
     assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9

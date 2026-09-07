@@ -15,6 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Cpu, KeyRound, MonitorSmartphone, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { roleLabel, useAuth } from "@/lib/auth";
+import { PersonalSettings } from "@/components/profile/PersonalSettings";
 
 /** The capabilities a full working role holds, for the granted/restricted split. */
 const CAPABILITIES: Array<{ perm: string; label: string }> = [
@@ -133,6 +134,8 @@ export function Profile() {
           </span>
         </div>
       </div>
+
+      <PersonalSettings />
 
       <MemoryPanel />
     </div>

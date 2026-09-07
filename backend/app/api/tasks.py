@@ -78,6 +78,7 @@ def _to_response(task) -> TaskResponse:
         user_id=task.user_id,
         request_text=task.request_text,
         task_type=task.task_type,
+        effort=task.effort or "balanced",
         status=task.status,
         input_file_ids=[UUID(file_id) for file_id in task.input_file_ids or []],
         error_message=task.error_message,
@@ -117,6 +118,7 @@ async def create_task(
         request_text=payload.request_text,
         task_type=payload.task_type,
         input_file_ids=payload.input_file_ids,
+        effort=payload.effort,
     )
 
     record_audit(
@@ -126,6 +128,7 @@ async def create_task(
         task_id=task.id,
         metadata={
             "task_type": task.task_type,
+            "effort": task.effort,
             "input_file_count": len(payload.input_file_ids),
         },
     )

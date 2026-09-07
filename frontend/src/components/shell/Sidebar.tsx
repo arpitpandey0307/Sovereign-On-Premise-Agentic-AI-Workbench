@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Boxes,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/cn";
 import { roleLabel, useAuth, useRole } from "@/lib/auth";
 import { canOpen, workspaceRole } from "@/lib/access";
 import { ChatHistory } from "@/components/shell/ChatHistory";
+import { loadProfile, type Profile } from "@/lib/profile";
 
 /**
  * The navigation.
@@ -58,6 +60,20 @@ export function Sidebar({
   const { roles } = useRole();
   const location = useLocation();
   const role = workspaceRole(roles);
+
+  // Personal settings live in this browser and are edited on another screen,
+  // so the sidebar listens rather than reading once.
+  const [profile, setProfile] = useState<Profile>(() => loadProfile(user?.id));
+  useEffect(() => {
+    const reload = () => setProfile(loadProfile(user?.id));
+    reload();
+    window.addEventListener("sovereign:profile", reload);
+    window.addEventListener("storage", reload);
+    return () => {
+      window.removeEventListener("sovereign:profile", reload);
+      window.removeEventListener("storage", reload);
+    };
+  }, [user?.id]);
 
   // Which surface's history this is, if any.
   const historyKind = location.pathname.startsWith("/coding")
@@ -129,11 +145,17 @@ export function Sidebar({
         }
       >
         <div className="avatar">
-          {(user?.name ?? "?").slice(0, 1).toUpperCase()}
+          {profile.avatar ? (
+            <img src={profile.avatar} alt="" />
+          ) : (
+            (profile.displayName || user?.name || "?").slice(0, 1).toUpperCase()
+          )}
         </div>
         {!collapsed && (
           <div className="meta">
-            <div className="u-name">{user?.name ?? "Signed out"}</div>
+            <div className="u-name">
+              {profile.displayName || user?.name || "Signed out"}
+            </div>
             <div className="u-role">{roleLabel(user?.roles ?? [])}</div>
           </div>
         )}

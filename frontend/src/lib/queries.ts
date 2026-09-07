@@ -367,6 +367,8 @@ export function useCreateTask() {
       request_text: string;
       task_type?: string;
       input_file_ids?: string[];
+      /** How much thinking to give it. Reaches the model router. */
+      effort?: "low" | "balanced" | "high";
     }) => api.post<Task>("/api/v1/tasks", body),
     onSuccess: () => client.invalidateQueries({ queryKey: ["tasks"] }),
   });

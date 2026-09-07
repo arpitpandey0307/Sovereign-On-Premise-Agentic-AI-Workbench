@@ -37,6 +37,7 @@ class TaskRepository:
         request_text: str,
         task_type: str,
         input_file_ids: list[UUID],
+        effort: str = "balanced",
     ) -> Task:
         task = Task(
             user_id=user_id,
@@ -44,6 +45,7 @@ class TaskRepository:
             request_text=request_text,
             task_type=task_type,
             input_file_ids=[str(file_id) for file_id in input_file_ids],
+            effort=effort,
             status="pending",
         )
         self.db.add(task)

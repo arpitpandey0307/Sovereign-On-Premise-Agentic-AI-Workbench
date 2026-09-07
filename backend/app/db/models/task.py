@@ -35,6 +35,9 @@ class Task(Base):
     task_type: Mapped[str] = mapped_column(String(64), default="general")
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     input_file_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # How much thinking the operator asked for: "low", "balanced" or "high".
+    # Reaches the router, which biases towards a smaller or larger model.
+    effort: Mapped[str] = mapped_column(String(16), default="balanced")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(

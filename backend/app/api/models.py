@@ -38,6 +38,7 @@ class RoutingPreviewRequest(BaseModel):
     estimated_context_tokens: int = 2048
     needs_vision: bool = False
     needs_structured_output: bool = False
+    effort: str = "balanced"
     exclude_models: list[str] = Field(default_factory=list)
 
 

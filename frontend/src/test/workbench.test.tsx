@@ -15,6 +15,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Workbench } from "@/pages/Workbench";
 import { tokenStore } from "@/lib/api";
+import { AuthProvider } from "@/lib/auth";
 
 /** An SSE response whose body is the given records, then closes. */
 function sseResponse(records: string[]) {
@@ -57,9 +58,13 @@ function mountWorkbench(handler: Handler) {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/workbench"]}>
-        <Routes>
-          <Route path="/workbench" element={<Workbench />} />
-        </Routes>
+        {/* The Workbench reads the signed-in identity, to key the standing
+            instructions it prepends to a request per user. */}
+        <AuthProvider>
+          <Routes>
+            <Route path="/workbench" element={<Workbench />} />
+          </Routes>
+        </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -90,8 +95,10 @@ describe("the Workbench", () => {
       return json({});
     });
 
-    // Attach a file.
-    await userEvent.click(screen.getByRole("button", { name: /attach a file/i }));
+    // Attach a file. The `+` opens a menu naming what can be attached, and
+    // the chosen kind narrows the file dialog's filter.
+    await userEvent.click(screen.getByRole("button", { name: /attach files/i }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Documents/i }));
     const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
     await userEvent.upload(picker, new File(["x"], "report.pdf", { type: "application/pdf" }));
     await screen.findByText("report.pdf");
@@ -110,7 +117,45 @@ describe("the Workbench", () => {
       conversation_id: "conv-1",
       request_text: "check psv-107",
       input_file_ids: ["file-9"],
+      // The effort the operator chose reaches the router. "balanced" is the
+      // default and means the router decides on merit.
+      effort: "balanced",
     });
+  });
+
+  it("sends the chosen effort with the request", async () => {
+    // Effort is a real routing instruction, not a label: the backend biases
+    // model choice by it. Sending the wrong one, or dropping it, would run the
+    // request on a model the operator did not ask for.
+    const calls = mountWorkbench((url) => {
+      if (url.endsWith("/conversations")) return json({ id: "conv-1" });
+      if (url.endsWith("/tasks")) return json({ task_id: "task-1", status: "planning" });
+      if (url.includes("/tasks/task-1/events")) return sseResponse([record("task_created")]);
+      if (url.includes("/tasks/task-1")) {
+        return json({
+          task_id: "task-1",
+          status: "planning",
+          request_text: "check psv-107",
+          conversation_id: "conv-1",
+        });
+      }
+      return json({});
+    });
+
+    await userEvent.click(screen.getByRole("radio", { name: /High/i }));
+    await userEvent.type(screen.getByRole("textbox"), "check psv-107");
+    await userEvent.click(screen.getByRole("button", { name: /run task/i }));
+
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.url.endsWith("/api/v1/tasks") && c.init?.method === "POST"),
+      ).toBe(true);
+    });
+
+    const taskCall = calls.find(
+      (c) => c.url.endsWith("/api/v1/tasks") && c.init?.method === "POST",
+    )!;
+    expect(JSON.parse(String(taskCall.init?.body)).effort).toBe("high");
   });
 
   it.each([

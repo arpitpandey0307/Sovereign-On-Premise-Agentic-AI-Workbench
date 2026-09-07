@@ -205,6 +205,7 @@ def reason(state: TaskState) -> dict:
             evidence=list(state.get("retrieved_sources") or []),
             document_text=document_text,
             classification=state.get("classification", "INTERNAL"),
+            effort=state.get("effort", "balanced"),
         )
 
     if content is None:

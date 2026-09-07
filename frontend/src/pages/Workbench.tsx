@@ -22,8 +22,22 @@ import {
   type FormEvent,
 } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, Mic, MicOff, Paperclip, Plus, X } from "lucide-react";
+import {
+  FileText,
+  Gauge,
+  Image as ImageIcon,
+  Loader2,
+  Mic,
+  MicOff,
+  Paperclip,
+  Plus,
+  Table2,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { isSupported as dictationSupported, startDictation, type Dictation } from "@/lib/dictation";
+import { instructionPreamble, loadProfile } from "@/lib/profile";
+import { useAuth } from "@/lib/auth";
 import { api, describeError } from "@/lib/api";
 import {
   useCreateConversation,
@@ -47,27 +61,52 @@ import { ConfidenceRow } from "@/components/workbench/ConfidenceRow";
 import { ModelRoutingCard } from "@/components/workbench/ModelRoutingCard";
 import { CodeExecution } from "@/components/workbench/CodeExecution";
 
-/**
- * What the attach panel accepts.
- *
- * Mirrors the backend's own allow-list, so a file it would refuse is refused
- * by the file picker instead of after an upload. Images and scanned PDFs are
- * the interesting case: those are the ones OCR and the vision model read.
- */
-const ACCEPTED_FILE_TYPES = [
-  ".pdf",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".tif",
-  ".tiff",
-  ".docx",
-  ".xlsx",
-  ".pptx",
-  ".csv",
-  ".txt",
-  ".json",
-].join(",");
+type Effort = "low" | "balanced" | "high";
+
+/** The effort levels, and what each actually does to model choice. */
+const EFFORTS: Array<{ id: Effort; label: string; hint: string }> = [
+  { id: "low", label: "Low", hint: "Fast answer on the small model" },
+  { id: "balanced", label: "Balanced", hint: "The router decides on merit" },
+  { id: "high", label: "High", hint: "Reaches for the largest model that fits" },
+];
+
+type AttachKind = "all" | "documents" | "images" | "data";
+
+/** What the `+` menu offers, and what each narrows the file dialog to. */
+const ATTACH_KINDS: Array<{
+  id: AttachKind;
+  label: string;
+  hint: string;
+  Icon: typeof Paperclip;
+}> = [
+  {
+    id: "documents",
+    label: "Documents",
+    hint: "PDF, Word, text — SOPs, reports, permits",
+    Icon: FileText,
+  },
+  {
+    id: "images",
+    label: "Images & drawings",
+    hint: "P&IDs and scans — read by OCR and the vision model",
+    Icon: ImageIcon,
+  },
+  {
+    id: "data",
+    label: "Spreadsheets & data",
+    hint: "Excel, CSV, JSON — logs and readings",
+    Icon: Table2,
+  },
+  { id: "all", label: "Any file", hint: "Anything the ingester accepts", Icon: Paperclip },
+];
+
+const ACCEPT_FOR: Record<AttachKind, string> = {
+  documents: ".pdf,.docx,.txt",
+  images: ".png,.jpg,.jpeg,.tif,.tiff,.pdf",
+  data: ".xlsx,.csv,.json",
+  all: ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.docx,.xlsx,.pptx,.csv,.txt,.json",
+};
+
 
 const SUGGESTIONS = [
   "Review this inspection report against the maintenance SOP and prepare an approval note.",
@@ -98,6 +137,12 @@ export function Workbench() {
   const [draft, setDraft] = useState("");
   const [attached, setAttached] = useState<AttachedFile[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
+  // How much thinking to give the request. It reaches the model router, which
+  // biases towards a smaller or a larger model -- it is a real instruction,
+  // not a label on the message.
+  const [effort, setEffort] = useState<Effort>("balanced");
+  /** Which kind of file the picker was opened for, so `accept` can narrow. */
+  const [picking, setPicking] = useState<AttachKind>("all");
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
 
@@ -109,6 +154,7 @@ export function Workbench() {
   const createConversation = useCreateConversation();
   const createTask = useCreateTask();
   const uploadFile = useUploadFile();
+  const { user } = useAuth();
 
   // Dictation. The text it produces lands in the box and is sent by hand --
   // speech never starts a task on its own, so what the model is given is
@@ -365,10 +411,17 @@ export function Workbench() {
         })
         .catch(() => {});
 
+      // Standing instructions from the profile, prepended to what was typed.
+      // Sent as part of the request rather than hidden somewhere the trace
+      // cannot see: what the model was given has to be exactly what the
+      // receipt shows it was given.
+      const preamble = instructionPreamble(loadProfile(user?.id));
+
       const task = await createTask.mutateAsync({
         conversation_id: conversation,
-        request_text: text,
+        request_text: preamble ? `${preamble}\n\n${text}` : text,
         input_file_ids: fileIds.length ? fileIds : undefined,
+        effort,
       });
 
       setTurns((current) => [
@@ -508,8 +561,9 @@ export function Workbench() {
             <button
               type="button"
               className="icon-sq"
-              aria-label={attachOpen ? "Close attachments" : "Attach a file"}
+              aria-label={attachOpen ? "Close the attach menu" : "Attach files"}
               aria-expanded={attachOpen}
+              aria-haspopup="menu"
               onClick={() => setAttachOpen((open) => !open)}
             >
               {attachOpen ? <X className="size-4" /> : <Plus className="size-4" />}
@@ -560,58 +614,117 @@ export function Workbench() {
             </button>
           </form>
 
-          {attachOpen && (
-            <div className="attach-pop">
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadFile.isPending}
-                >
-                  <Paperclip className="size-3.5" aria-hidden />
-                  {uploadFile.isPending ? "Uploading…" : "Choose file"}
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  hidden
-                  multiple
-                  accept={ACCEPTED_FILE_TYPES}
-                  onChange={onPickFile}
-                />
-              </div>
-              <div className="chip-list">
-                {attached.length === 0 ? (
-                  <span className="hint">No documents attached.</span>
-                ) : (
-                  attached.map((file) => (
-                    <span className="file-chip" key={file.id}>
-                      {file.filename}
-                      <button
-                        type="button"
-                        aria-label={`Remove ${file.filename}`}
-                        onClick={() =>
-                          setAttached((current) =>
-                            current.filter((f) => f.id !== file.id),
-                          )
-                        }
-                      >
-                        ×
-                      </button>
+          <AnimatePresence>
+            {attachOpen && (
+              <motion.div
+                className="attach-menu"
+                role="menu"
+                aria-label="Attach"
+                initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                transition={{ duration: 0.14 }}
+              >
+                {ATTACH_KINDS.map((kind) => (
+                  <button
+                    key={kind.id}
+                    type="button"
+                    role="menuitem"
+                    className="attach-menu-item"
+                    onClick={() => {
+                      setPicking(kind.id);
+                      setAttachOpen(false);
+                      // The accept attribute has to be in the DOM before the
+                      // dialog opens, so the click waits a frame.
+                      requestAnimationFrame(() => fileInputRef.current?.click());
+                    }}
+                  >
+                    <span className="ico">
+                      <kind.Icon className="size-4" aria-hidden />
                     </span>
-                  ))
-                )}
-              </div>
-              <span className="hint">
-                Images, PDFs, drawings, spreadsheets and documents. Scanned
-                pages go through OCR and, where there is no text layer, are
-                described by the local vision model. The classification is read
-                from each document&rsquo;s own markings during ingestion &mdash;
-                it is not chosen here.
-              </span>
+                    <span>
+                      <span className="t">{kind.label}</span>
+                      <span className="d">{kind.hint}</span>
+                    </span>
+                  </button>
+                ))}
+                <p className="attach-menu-foot">
+                  Files are ingested on this machine. Classification is read
+                  from each document&rsquo;s own markings.
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            hidden
+            multiple
+            accept={ACCEPT_FOR[picking]}
+            onChange={onPickFile}
+          />
+
+          {(attached.length > 0 || uploadFile.isPending) && (
+            <div className="attached-row">
+              {attached.map((file) => (
+                <motion.span
+                  className="file-chip"
+                  key={file.id}
+                  initial={{ opacity: 0, scale: 0.94 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                >
+                  <Paperclip className="size-3" aria-hidden />
+                  {file.filename}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${file.filename}`}
+                    onClick={() =>
+                      setAttached((current) =>
+                        current.filter((f) => f.id !== file.id),
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                </motion.span>
+              ))}
+              {uploadFile.isPending && (
+                <span className="file-chip">
+                  <Loader2 className="size-3 animate-spin" aria-hidden />
+                  Uploading…
+                </span>
+              )}
             </div>
           )}
+
+          {/* How hard to think about this. A real routing instruction: the
+              backend biases model choice by it, so "low" genuinely answers on
+              the small fast model and "high" reaches for the large one. */}
+          <div className="effort-row">
+            <span className="effort-label">
+              <Gauge className="size-3.5" aria-hidden />
+              Effort
+            </span>
+            <div className="effort-seg" role="radiogroup" aria-label="Reasoning effort">
+              {EFFORTS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={effort === option.id}
+                  title={option.hint}
+                  className={"effort-opt" + (effort === option.id ? " active" : "")}
+                  onClick={() => setEffort(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <span className="effort-hint">
+              {EFFORTS.find((option) => option.id === effort)?.hint}
+            </span>
+          </div>
 
           {listening && (
             <p

@@ -1106,3 +1106,269 @@ body {
   .card:hover, .stat:hover, .btn:hover:not(:disabled) { transform: none; }
   .nav-item:not(.active):hover { padding-left: 15px; }
 }
+
+/* ==========================================================================
+   Chat and composer
+   Ported from front/css/shared.css, which is the design authority for this
+   surface. It was the one block never brought across, which is why the AI
+   workbench rendered as unstyled boxes while every other screen did not.
+   ========================================================================== */
+
+.chat { display: flex; flex-direction: column; height: 100%; }
+.chat-scroll { flex: 1; overflow-y: auto; padding: 32px 0; }
+.chat-thread { max-width: 780px; margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; gap: 26px; }
+
+.msg-user {
+  align-self: flex-end; max-width: 80%;
+  background: #263a49;
+  border-radius: 14px 14px 4px 14px;
+  padding: 12px 16px; font-size: 14.5px; line-height: 1.55;
+}
+.msg-ai { display: flex; flex-direction: column; gap: 14px; max-width: 92%; }
+.msg-ai .body { font-size: 14.5px; line-height: 1.65; color: var(--text); }
+.msg-ai .body strong { color: #fff; }
+
+.risk-callout {
+  display: flex; align-items: flex-start; gap: 10px;
+  border-radius: var(--r-lg); padding: 12px 14px;
+  font-size: 14px; line-height: 1.55;
+}
+.risk-callout.warn   { background: var(--warn-bg);   border: 1px solid var(--warn-line);   color: var(--warn-text); }
+.risk-callout.danger { background: var(--danger-bg); border: 1px solid var(--danger-line); color: var(--danger-text); }
+
+/* Reasoning timeline */
+.reasoning { border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: var(--panel-2); }
+.reasoning > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 14px;
+  font-size: 12.5px; font-weight: 600; color: var(--text-dim);
+  user-select: none;
+}
+.reasoning > summary::-webkit-details-marker { display: none; }
+.reasoning > summary .chev { font-family: var(--font-mono); font-size: 10px; transition: transform .15s; }
+.reasoning[open] > summary .chev { transform: rotate(90deg); }
+.timeline {
+  padding: 6px 16px 16px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.tl-step {
+  display: grid; grid-template-columns: 22px 1fr; gap: 12px;
+  padding: 10px 0;
+  position: relative;
+}
+.tl-step:not(:last-child)::before {
+  content: ""; position: absolute; left: 10px; top: 24px; bottom: -2px;
+  width: 1px; background: var(--border-soft);
+}
+.tl-node {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  display: grid; place-items: center;
+  font: 700 10px/1 var(--font-mono); color: var(--text-mute);
+  z-index: 1;
+}
+.tl-step.done   .tl-node { border-color: var(--ok-line);     color: var(--ok-text);     background: var(--ok-bg); }
+.tl-step.active .tl-node { border-color: var(--accent);      color: var(--accent-bright); background: var(--accent-weak); }
+.tl-step.fail   .tl-node { border-color: var(--danger-line); color: var(--danger-text); background: var(--danger-bg); }
+.tl-body { font-size: 12.5px; padding-top: 1px; }
+.tl-body .tl-name { color: var(--text); font-weight: 500; }
+.tl-body .tl-detail { color: var(--text-mute); margin-top: 2px; }
+.tl-body .tl-detail .mono { color: var(--accent-bright); }
+
+/* Citations */
+.sources {
+  border: 1px solid var(--accent-line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--accent-weak);
+  padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.sources .lbl { font: 700 11px/1 var(--font-mono); letter-spacing: .06em; color: var(--accent-bright); }
+.source-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.source-row .ref { font: 12.5px/1.3 var(--font-mono); color: var(--text-dim); }
+.source-row .ref b { color: var(--text); font-weight: 600; }
+
+.msg-actions { display: flex; gap: 10px; font-size: 11px; color: var(--text-faint); }
+.msg-actions button { background: none; border: none; color: inherit; padding: 0; }
+.msg-actions button:hover { color: var(--text-dim); }
+
+.chat-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; text-align: center;
+}
+.chat-empty .glyph {
+  width: 52px; height: 52px; border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  margin-bottom: 10px;
+}
+.chat-empty h3 { font-size: 22px; font-weight: 600; }
+.chat-empty p  { font-size: 13.5px; color: var(--text-mute); margin-bottom: 14px; }
+.suggestion-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 640px; }
+.suggestion {
+  font: 12px/1 var(--font-mono); color: var(--text-dim);
+  border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  padding: 9px 14px; background: transparent;
+}
+.suggestion:hover { background: var(--panel-2); }
+
+/* Composer */
+.composer { padding: 16px 24px 22px; border-top: 1px solid var(--border); }
+.composer-inner { max-width: 780px; margin: 0 auto; }
+.composer-box {
+  display: flex; align-items: flex-end; gap: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xl);
+  padding: 10px;
+}
+.composer-box.focus { border-color: var(--accent-line); }
+.composer-box textarea {
+  flex: 1; resize: none; background: transparent; border: none; outline: none;
+  color: var(--text); font-size: 14.5px; padding: 8px 4px; line-height: 1.4;
+  max-height: 200px;
+}
+.composer .icon-sq {
+  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  border: 1px solid var(--border-strong); background: var(--elevated-2);
+  color: var(--text-dim); font-size: 18px; display: grid; place-items: center;
+}
+.composer .send {
+  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  border: none; background: var(--accent); color: var(--text-invert);
+  font-size: 15px; font-weight: 700; display: grid; place-items: center;
+}
+.composer .send:disabled { background: var(--elevated-2); color: var(--text-faint); }
+
+/* --- composer: attach menu, chips, effort -------------------------------
+   The `+` opens a menu naming what can be attached rather than a bare file
+   dialog: on a plant floor "images and drawings" is a more useful prompt than
+   an OS picker, and it narrows the dialog's filter to match.
+   ------------------------------------------------------------------------ */
+
+.composer-inner { position: relative; }
+
+.composer-box {
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.composer-box:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 10%, transparent);
+}
+
+.composer .icon-sq { transition: background .14s ease, color .14s ease, border-color .14s ease; }
+.composer .icon-sq:hover { background: var(--panel-2); color: var(--text); }
+.composer .send { transition: filter .14s ease, transform .14s ease; }
+.composer .send:not(:disabled):hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+.attach-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 40;
+  width: min(340px, calc(100vw - 48px));
+  padding: 6px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  box-shadow: 0 20px 46px -20px rgba(0, 0, 0, .9);
+}
+.attach-menu-item {
+  display: flex; align-items: flex-start; gap: 11px;
+  width: 100%; padding: 9px 10px;
+  border: none; background: transparent; color: inherit;
+  border-radius: var(--r-md); text-align: left; cursor: pointer;
+}
+.attach-menu-item:hover { background: var(--elevated); }
+.attach-menu-item .ico {
+  display: grid; place-items: center;
+  width: 30px; height: 30px; flex: none;
+  border-radius: 8px;
+  color: var(--accent-bright);
+  background: color-mix(in oklab, var(--accent) 13%, transparent);
+}
+.attach-menu-item .t { display: block; font-size: 13px; color: var(--text); }
+.attach-menu-item .d { display: block; font-size: 11px; color: var(--text-faint); margin-top: 1px; }
+.attach-menu-foot {
+  padding: 8px 10px 4px;
+  margin: 4px 0 0;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.attached-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 9px;
+}
+.file-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: var(--elevated);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  max-width: 260px;
+}
+.file-chip button {
+  border: none; background: none; color: var(--text-faint);
+  cursor: pointer; line-height: 1; padding: 0 0 0 2px; font-size: 14px;
+}
+.file-chip button:hover { color: var(--danger-text); }
+
+.effort-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 10px;
+}
+.effort-label {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.effort-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.effort-opt {
+  border: none; background: transparent; cursor: pointer;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 11.5px; color: var(--text-mute);
+  transition: background .14s ease, color .14s ease;
+}
+.effort-opt:hover { color: var(--text-dim); }
+.effort-opt.active {
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+.effort-hint { font-size: 11px; color: var(--text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-box, .composer .icon-sq, .composer .send, .effort-opt { transition: none; }
+  .composer .send:not(:disabled):hover { transform: none; }
+}
+
+/* Profile photo. Square with a soft ring, matching the avatar in the shell. */
+.profile-avatar {
+  display: grid; place-items: center;
+  width: 64px; height: 64px; flex: none;
+  border-radius: 14px;
+  overflow: hidden;
+  color: var(--accent-bright);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 26%, transparent);
+}
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.sidebar-user .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.sidebar-user .avatar { overflow: hidden; }

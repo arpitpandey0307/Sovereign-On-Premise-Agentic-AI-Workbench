@@ -195,6 +195,7 @@ class LangGraphOrchestrator:
             request=task.request_text,
             task_type=task.task_type,
             input_files=list(task.input_file_ids or []),
+            effort=task.effort or "balanced",
         )
 
     def _persist(self, task_id: UUID, state: TaskState, *, last_node: str) -> None:

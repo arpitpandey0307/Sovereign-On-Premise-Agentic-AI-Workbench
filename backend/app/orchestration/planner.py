@@ -119,6 +119,7 @@ def draft_approval_note(
     evidence: list[dict],
     document_text: str,
     classification: str,
+    effort: str = "balanced",
 ) -> tuple[ApprovalNoteContent | None, str, str]:
     """Ask a reasoning model for the note. Returns ``(content, model, error)``."""
     prompt = _build_prompt(request, evidence, document_text)
@@ -132,6 +133,7 @@ def draft_approval_note(
                 classification=classification,
                 needs_structured_output=True,
                 estimated_context_tokens=len(prompt) // 3,
+                effort=effort,
             ),
             prompt=prompt,
             system=DRAFT_SYSTEM,

@@ -8,7 +8,7 @@
  * list, and a system-status panel showing real data rather than six dashes.
  */
 
-import { useState, type FormEvent } from "react";
+import { Suspense, lazy, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -22,6 +22,12 @@ import {
   Terminal,
 } from "lucide-react";
 import { describeError } from "@/lib/api";
+
+const ActivityCharts = lazy(() =>
+  import("@/components/dashboard/ActivityCharts").then((m) => ({
+    default: m.ActivityCharts,
+  })),
+);
 import { greeting, formatRelative } from "@/lib/format";
 import { useAuth, useRole } from "@/lib/auth";
 import {
@@ -186,6 +192,14 @@ export function Dashboard() {
           />
         )}
       </div>
+
+      {/* What the machine is actually doing, from the task list and the
+          receipts. Lazily loaded: the charting library is the second-heaviest
+          thing in the app and only two screens use it. */}
+      <h2 className="mt-8 section-title">Activity</h2>
+      <Suspense fallback={<p className="loading-note">Reading activity…</p>}>
+        <ActivityCharts />
+      </Suspense>
 
       <h2 className="mt-8 section-title">System status</h2>
       <SystemStatusPanel />

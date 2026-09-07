@@ -17,12 +17,13 @@ from app.db.models.model_registry import ModelRecord, ModelStat
 from app.routing.hardware import GpuState
 
 WEIGHTS: dict[str, float] = {
-    "task_accuracy": 0.30,
+    "task_accuracy": 0.25,
     "capability_match": 0.20,
-    "context_fit": 0.15,
-    "latency": 0.10,
-    "resource_efficiency": 0.10,
-    "historical_success": 0.10,
+    "context_fit": 0.13,
+    "effort_fit": 0.12,
+    "latency": 0.08,
+    "resource_efficiency": 0.08,
+    "historical_success": 0.09,
     "reliability": 0.05,
 }
 
@@ -236,6 +237,45 @@ def _reliability(record: ModelRecord, stat: ModelStat | None) -> FactorScore:
     return FactorScore("reliability", value, WEIGHTS["reliability"], note)
 
 
+def _effort_fit(record: ModelRecord, requirements) -> FactorScore:
+    """How well the model's size matches the effort that was asked for.
+
+    The operator says how much thinking a request deserves; this is what makes
+    that a real instruction rather than a label. "Low" prefers the small fast
+    model -- for a lookup, a 1.7B answer in two seconds beats an 8B answer in
+    twenty. "High" prefers the largest that fits, for work where being right
+    matters more than being quick.
+
+    It is a preference, not a filter: nothing is excluded, so a request can
+    still be served when the preferred size is unavailable. Size is read from
+    the VRAM the model needs, which is the honest proxy the registry already
+    holds.
+    """
+    effort = getattr(requirements, "effort", "balanced") or "balanced"
+    vram = record.vram_required_gb or 0.0
+
+    if effort == "balanced":
+        # Neutral: this factor should not tilt a request that did not ask.
+        return FactorScore(
+            "effort_fit", 0.6, WEIGHTS["effort_fit"], "balanced effort; size not weighted"
+        )
+
+    # Normalised against the largest model this deployment could hold. 24 GB is
+    # a workstation card; anything above is treated as maximally large.
+    size = min(1.0, vram / 24.0)
+
+    if effort == "low":
+        value = 1.0 - size
+        note = f"low effort favours a small model ({vram:.1f} GB)"
+    else:
+        value = size
+        note = f"high effort favours a large model ({vram:.1f} GB)"
+
+    return FactorScore(
+        "effort_fit", max(0.0, min(1.0, value)), WEIGHTS["effort_fit"], note
+    )
+
+
 def score_model(
     record: ModelRecord,
     requirements,
@@ -246,6 +286,7 @@ def score_model(
         _task_accuracy(record, requirements),
         _capability_match(record, requirements),
         _context_fit(record, requirements),
+        _effort_fit(record, requirements),
         _latency(record, stat),
         _resource_efficiency(record, gpu),
         _historical_success(stat),

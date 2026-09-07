@@ -31,6 +31,8 @@ class TaskState(TypedDict, total=False):
     task_type: str
     input_files: list[str]
     classification: str
+    # "low", "balanced" or "high" -- what the operator asked the router for.
+    effort: str
 
     # --- what the planner decided ---
     requirements: list[str]
@@ -66,6 +68,7 @@ def initial_state(
     request: str,
     task_type: str,
     input_files: list[str],
+    effort: str = "balanced",
 ) -> TaskState:
     return TaskState(
         task_id=task_id,
@@ -74,6 +77,7 @@ def initial_state(
         request=request,
         task_type=task_type,
         input_files=input_files,
+        effort=effort,
         classification="INTERNAL",
         requirements=[],
         plan=[],
