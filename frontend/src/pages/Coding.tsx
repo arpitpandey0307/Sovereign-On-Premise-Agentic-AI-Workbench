@@ -15,16 +15,28 @@
  * different things.
  */
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Ban, HardDriveDownload, Loader2, ShieldCheck, Timer } from "lucide-react";
 import { ApiError, describeError } from "@/lib/api";
 import { useCreateConversation, useCreateTask, useSandboxStatus } from "@/lib/queries";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ErrorState } from "@/components/states/ErrorState";
-import type { SandboxStatus } from "@/lib/types";
+import { CodeExecution } from "@/components/workbench/CodeExecution";
+import { Citations, Outputs } from "@/components/workbench/Sources";
+import { api } from "@/lib/api";
+import {
+  emptyPipeline,
+  mergeExecution,
+  type PipelineState,
+  type TaskExecution,
+} from "@/lib/pipeline";
+import { formatRelative } from "@/lib/format";
+import type { Page, SandboxStatus, Task } from "@/lib/types";
 
 export function Coding() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const openConversationId = params.get("conversation");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +77,8 @@ export function Coding() {
 
       <SandboxPanel />
 
+      {openConversationId && <CodingTranscript conversationId={openConversationId} />}
+
       <form onSubmit={run} className="mt-6">
         <div className="card" style={{ padding: "14px" }}>
           <span className="field-label" style={{ margin: 0 }}>
@@ -80,8 +94,9 @@ export function Coding() {
           />
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className="hint">
-              Opens in the Workbench — the plan, the code, its output and any
-              artifact appear in the thread.
+              The live run streams in the Workbench — the plan, the code, its
+              output and any artifact appear in the thread. The session is
+              filed here, under Coding sessions.
             </span>
             <button
               type="submit"
@@ -100,6 +115,122 @@ export function Coding() {
         )}
       </form>
     </div>
+  );
+}
+
+/**
+ * A past coding session, reopened from the history list.
+ *
+ * Rebuilt from the tasks it produced rather than from the event stream: the
+ * stream's backlog is held in memory and is gone after a restart, while the
+ * tasks and their execution records are kept. What matters when someone comes
+ * back to a script is what was asked, what the sandbox printed, and whether
+ * anything came out of it -- so that is what this shows.
+ */
+function CodingTranscript({ conversationId }: { conversationId: string }) {
+  const [runs, setRuns] = useState<
+    Array<{ task: Task; pipeline: PipelineState }> | null
+  >(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRuns(null);
+    setFailed(false);
+
+    (async () => {
+      try {
+        // No server-side filter by conversation, so a recent page is narrowed
+        // here.
+        const page = await api.get<Page<Task>>("/api/v1/tasks?limit=100");
+        const mine = page.items
+          .filter((task) => task.conversation_id === conversationId)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+        const rebuilt = await Promise.all(
+          mine.map(async (task) => {
+            const execution = await api
+              .get<TaskExecution>(`/api/v1/tasks/${task.task_id}/execution`)
+              .catch(() => null);
+            const pipeline = execution
+              ? mergeExecution(emptyPipeline(), execution)
+              : emptyPipeline();
+            return { task, pipeline };
+          }),
+        );
+        if (!cancelled) setRuns(rebuilt);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
+
+  if (failed) {
+    return (
+      <p className="hint" style={{ marginTop: "18px" }}>
+        This session could not be loaded.
+      </p>
+    );
+  }
+
+  if (runs === null) {
+    return <p className="loading-note">Loading the session…</p>;
+  }
+
+  if (runs.length === 0) {
+    return (
+      <p className="hint" style={{ marginTop: "18px" }}>
+        This session has no runs yet. Describe a task below to start one.
+      </p>
+    );
+  }
+
+  return (
+    <section className="mt-6">
+      <div className="flex items-center justify-between">
+        <h3 className="section-title">Session</h3>
+        <Link to="/coding" className="text-[12px]" style={{ color: "var(--text-mute)" }}>
+          Start a new one
+        </Link>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {runs.map(({ task, pipeline }) => (
+          <div key={task.task_id} className="card">
+            <p className="mono text-[11px]" style={{ color: "var(--text-faint)" }}>
+              {formatRelative(task.created_at)} &middot;{" "}
+              <Link
+                to={`/tasks/${task.task_id}`}
+                style={{ color: "var(--accent-bright)" }}
+              >
+                {task.status}
+              </Link>
+            </p>
+            <p className="mt-1.5 text-[13px] text-primary">{task.request_text}</p>
+
+            {task.error_message && (
+              <div className="risk-callout danger mt-2">{task.error_message}</div>
+            )}
+
+            {pipeline.sandboxFailed ? (
+              <div className="risk-callout danger mt-2">
+                The sandbox could not run the code — it did not execute.
+                {pipeline.sandboxDetail ? ` ${pipeline.sandboxDetail}` : ""}
+              </div>
+            ) : pipeline.codeRun ? (
+              <CodeExecution run={pipeline.codeRun} />
+            ) : null}
+
+            <Citations items={pipeline.citations} />
+            <Outputs items={pipeline.artifacts} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

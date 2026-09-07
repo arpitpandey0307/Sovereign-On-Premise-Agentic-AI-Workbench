@@ -10,6 +10,7 @@ import { describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Input } from "@/components/ui/Input";
 import {
+  admits,
   homeFor,
   workspaceById,
   workspaceIntent,
@@ -48,11 +49,10 @@ export function Login() {
     const from = (location.state as { from?: string } | null)?.from;
     if (from) return <Navigate to={from} replace />;
 
-    const role = workspaceRole(user.roles);
-    if (!wanted) return <Navigate to={homeFor(role)} replace />;
+    if (!wanted) return <Navigate to={homeFor(workspaceRole(user.roles))} replace />;
     return (
       <Navigate
-        to={wanted.roles.includes(role) ? wanted.home : `/workspaces?denied=${wanted.id}`}
+        to={admits(wanted, user.roles) ? wanted.home : `/workspaces?denied=${wanted.id}`}
         replace
       />
     );
@@ -65,17 +65,18 @@ export function Login() {
     clearEndedReason();
     try {
       const identity = await signIn(email.trim(), password);
-      const role = workspaceRole(identity.roles);
       workspaceIntent.clear();
 
-      // No workspace was asked for: the role decides where to land.
+      // Nothing was claimed: the role decides where to land.
       if (!wanted) {
-        navigate(homeFor(role), { replace: true });
+        navigate(homeFor(workspaceRole(identity.roles)), { replace: true });
         return;
       }
 
+      // The claim is settled here, against what the server says this account
+      // holds -- not against what was picked on the previous screen.
       navigate(
-        wanted.roles.includes(role)
+        admits(wanted, identity.roles)
           ? wanted.home
           : `/workspaces?denied=${wanted.id}`,
         { replace: true },
@@ -117,11 +118,11 @@ export function Login() {
             className="text-[12px]"
             style={{ color: "var(--text-mute)", marginBottom: "14px" }}
           >
-            Signing in to{" "}
+            Signing in as{" "}
             <span className="font-semibold" style={{ color: "var(--text)" }}>
               {wanted.name}
             </span>
-            . Your role decides whether you are admitted.
+            . Your credentials decide whether that holds.
           </p>
         )}
 

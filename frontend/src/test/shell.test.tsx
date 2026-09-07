@@ -11,7 +11,7 @@ import { permissionsFor } from "@/test/roles";
 import type { Role, Sovereignty, User } from "@/lib/types";
 
 /** Stand up the shell with a given role, mocking only the network. */
-function renderWithRole(roles: Role[]) {
+function renderWithRole(roles: Role[], at = "/dashboard") {
   const user: User = {
     id: "u1",
     email: "a@b.local",
@@ -31,6 +31,12 @@ function renderWithRole(roles: Role[]) {
       if (url.includes("/security/permissions")) {
         return new Response(JSON.stringify(perms), { status: 200 });
       }
+      if (url.includes("/conversations") || url.includes("/api/v1/tasks")) {
+        return new Response(
+          JSON.stringify({ items: [], total: 0, limit: 25, offset: 0 }),
+          { status: 200 },
+        );
+      }
       return new Response(JSON.stringify({}), { status: 200 });
     }),
   );
@@ -41,7 +47,7 @@ function renderWithRole(roles: Role[]) {
 
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[at]}>
         <AuthProvider>
           <Sidebar collapsed={false} onToggle={() => {}} />
         </AuthProvider>
@@ -80,13 +86,15 @@ describe("the sidebar", () => {
     expect(screen.queryByText("Coding Workspace")).not.toBeInTheDocument();
   });
 
-  it("locks the security centre for an engineer rather than hiding it", async () => {
-    // Knowing the system *has* oversight is part of what the product argues,
-    // so the item stays visible and disabled.
+  it("does not show an engineer the security centre at all", async () => {
+    // Not visible-but-locked. In a plant a door you are shown and refused is
+    // worse than one you are not shown -- the sovereignty badge in the header
+    // already tells everyone the oversight exists.
     renderWithRole(["ENGINEER"]);
 
-    const item = await screen.findByTitle(/Security Center/i);
-    expect(item).toHaveAttribute("aria-disabled", "true");
+    await screen.findByText("AI Workbench");
+    expect(screen.queryByText("Security Center")).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Security Center/i)).not.toBeInTheDocument();
   });
 
   it("gives an analyst exactly what an engineer gets", async () => {
@@ -104,12 +112,9 @@ describe("the sidebar", () => {
     expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
     expect(screen.getByText("Approval Requests")).toBeInTheDocument();
     expect(screen.getByText("Tasks")).toBeInTheDocument();
-    // Oversight is still not theirs.
+    // Oversight is still not theirs, and is not shown at all.
     expect(screen.queryByText("Models")).not.toBeInTheDocument();
-    expect(screen.getByTitle(/Security Center/i)).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(screen.queryByText("Security Center")).not.toBeInTheDocument();
   });
 
   it("hides the corpus and the chat from a security administrator", async () => {
@@ -150,16 +155,34 @@ describe("the sidebar", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the chat history only to roles that hold the workbench", async () => {
-    const { unmount } = renderWithRole(["ENGINEER"]);
-    expect(await screen.findByText("Chat history")).toBeInTheDocument();
+  it("shows workbench sessions only while standing in the workbench", async () => {
+    const { unmount } = renderWithRole(["ENGINEER"], "/workbench");
+    expect(await screen.findByText("Workbench sessions")).toBeInTheDocument();
+    expect(screen.queryByText("Coding sessions")).not.toBeInTheDocument();
     unmount();
 
-    // For a security administrator the panel is absent rather than empty: an
-    // empty history reads as broken instead of as the boundary working.
-    renderWithRole(["SECURITY_ADMIN"]);
+    // On the dashboard there is no session list at all -- history belongs to
+    // the surface that produced it.
+    renderWithRole(["ENGINEER"], "/dashboard");
+    await screen.findByText("AI Workbench");
+    expect(screen.queryByText("Workbench sessions")).not.toBeInTheDocument();
+  });
+
+  it("shows coding sessions in the coding workspace, and only there", async () => {
+    renderWithRole(["ADMIN"], "/coding");
+
+    expect(await screen.findByText("Coding sessions")).toBeInTheDocument();
+    expect(screen.queryByText("Workbench sessions")).not.toBeInTheDocument();
+  });
+
+  it("gives a security administrator no session list, since they have none", async () => {
+    // The panel is absent rather than empty: an empty list reads as broken
+    // rather than as the boundary working.
+    renderWithRole(["SECURITY_ADMIN"], "/security");
+
     await screen.findByRole("link", { name: /Security Center/i });
-    expect(screen.queryByText("Chat history")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workbench sessions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Coding sessions")).not.toBeInTheDocument();
   });
 
   it("labels every role, and never leaves one unnamed", async () => {

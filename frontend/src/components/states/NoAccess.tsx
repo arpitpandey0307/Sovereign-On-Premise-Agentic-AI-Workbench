@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Lock } from "lucide-react";
-import { ROLE_LABEL, workspacesFor, type WorkspaceRole } from "@/lib/access";
+import { ROLE_LABEL, WORKSPACES, type WorkspaceRole } from "@/lib/access";
 
 /**
  * A screen this role does not hold.
@@ -22,7 +22,9 @@ export function NoAccess({
   pathname: string;
   home: string;
 }) {
-  const mine = workspacesFor(role);
+  // Named by rank rather than by the account's own roles: this is rendered
+  // inside the shell, where the rank is what the navigation is built from.
+  const mine = WORKSPACES.filter((workspace) => workspace.role === role);
 
   return (
     <div className="view-pad">

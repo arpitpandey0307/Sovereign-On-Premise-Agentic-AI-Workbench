@@ -832,3 +832,277 @@ body {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* ==========================================================================
+   Sign-in-as chooser
+   The one place before authentication, so it carries more atmosphere than the
+   instrument panel behind the login does. Two slow, heavily blurred washes of
+   the accent give the page depth; everything else stays flat and legible.
+   ========================================================================== */
+
+.choose-wrap {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  padding: 64px 24px;
+}
+
+.choose-aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.choose-aurora span {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: .28;
+}
+.choose-aurora .a1 {
+  width: 620px; height: 620px;
+  top: -220px; left: -140px;
+  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+.choose-aurora .a2 {
+  width: 520px; height: 520px;
+  right: -180px; bottom: -200px;
+  background: radial-gradient(circle, var(--accent-bright) 0%, transparent 70%);
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+@keyframes drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(70px, 60px, 0) scale(1.12); }
+}
+@keyframes drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.08); }
+  to   { transform: translate3d(-60px, -50px, 0) scale(1); }
+}
+
+.choose-inner {
+  position: relative;
+  margin: 0 auto;
+  max-width: 1040px;
+}
+
+.choose-title {
+  margin-top: 28px;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  color: var(--text);
+}
+
+.choose-grid {
+  margin-top: 30px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+}
+
+/* --- role card --------------------------------------------------------- */
+
+.role-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  text-align: left;
+  border-radius: var(--r-md, 12px);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.035) 0%, transparent 42%),
+    var(--panel);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.role-card:hover {
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
+  box-shadow:
+    0 14px 34px -16px rgba(0, 0, 0, .75),
+    0 0 0 1px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+.role-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A single pass of light across the card on hover. Purely a hover affordance
+   -- it does not run on its own, so a still page stays still. */
+.role-card-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    color-mix(in oklab, var(--accent) 12%, transparent) 50%,
+    transparent 62%
+  );
+  transform: translateX(-120%);
+  transition: transform .7s ease;
+  pointer-events: none;
+}
+.role-card:hover .role-card-sheen { transform: translateX(120%); }
+
+.role-card-icon {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  color: var(--accent-bright);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 26%, transparent);
+  transition: transform .18s ease;
+}
+.role-card:hover .role-card-icon { transform: translateY(-1px) scale(1.04); }
+
+.role-card-name {
+  margin-top: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--text);
+}
+
+.role-card-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-mute);
+  transition: color .18s ease, gap .18s ease;
+}
+.role-card:hover .role-card-go {
+  color: var(--accent-bright);
+  gap: 10px;
+}
+
+/* Someone who has asked not to see motion gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  .choose-aurora .a1,
+  .choose-aurora .a2 { animation: none; }
+  .role-card,
+  .role-card-sheen,
+  .role-card-icon,
+  .role-card-go { transition: none; }
+}
+
+/* The 3D sovereignty boundary on the landing hero. Behind the copy, masked at
+   the edges so it dissolves into the page instead of ending in a hard box. */
+.sovereign-core {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(940px, 108vw);
+  height: 620px;
+  pointer-events: none;
+  opacity: .55;
+  -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent 78%);
+  mask-image: radial-gradient(closest-side, #000 45%, transparent 78%);
+}
+@media (max-width: 640px) {
+  .sovereign-core { height: 420px; opacity: .4; }
+}
+
+/* ==========================================================================
+   Surface depth
+   The palette and the class vocabulary stay exactly as `front` defines them.
+   What is added here is depth: a top highlight so panels read as lit from
+   above, and movement on hover so the interface answers the pointer. Nothing
+   animates on its own — a control room where things drift about on their own
+   is a control room nobody trusts.
+   ========================================================================== */
+
+.card {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .028) 0%, transparent 38%),
+    var(--panel-2);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.card:hover {
+  border-color: color-mix(in oklab, var(--accent) 26%, var(--border));
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, .8);
+}
+
+.stat {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .03) 0%, transparent 46%),
+    var(--elevated);
+  transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.stat::after {
+  /* A hairline of accent along the top edge, brightening on hover. */
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--accent) 42%, transparent),
+    transparent
+  );
+  opacity: .35;
+  transition: opacity .16s ease;
+}
+.stat:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 30%, var(--border));
+  box-shadow: 0 12px 28px -20px rgba(0, 0, 0, .85);
+}
+.stat:hover::after { opacity: 1; }
+
+.btn {
+  position: relative;
+  transition:
+    filter .12s ease,
+    background .12s ease,
+    border-color .12s ease,
+    transform .12s ease,
+    box-shadow .12s ease;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn-accent:hover:not(:disabled),
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 8px 20px -10px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+/* The active navigation item earns a marker rather than only a fill, so the
+   current screen is findable at a glance on a dense sidebar. */
+.nav-item {
+  position: relative;
+  transition: background .14s ease, color .14s ease, padding-left .14s ease;
+}
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 16px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+.nav-item:not(.active):hover { padding-left: 18px; }
+
+.recent-item { transition: background .14s ease, color .14s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .stat, .btn, .nav-item, .recent-item { transition: none; }
+  .card:hover, .stat:hover, .btn:hover:not(:disabled) { transform: none; }
+  .nav-item:not(.active):hover { padding-left: 15px; }
+}

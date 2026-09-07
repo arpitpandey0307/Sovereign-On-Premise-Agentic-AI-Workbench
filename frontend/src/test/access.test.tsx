@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  admits,
   canOpen,
   homeFor,
   workspaceRole,
@@ -132,12 +133,29 @@ describe("what each role may open", () => {
   });
 });
 
-describe("workspaces", () => {
-  it("gives every role at least one workspace, and a home inside it", () => {
+describe("signing in as a role", () => {
+  it("offers an account exactly the identities it holds", () => {
+    expect(workspacesFor(["ENGINEER"]).map((w) => w.id)).toEqual(["engineer"]);
+    expect(workspacesFor(["SECURITY_ADMIN"]).map((w) => w.id)).toEqual(["security"]);
+    // The seeded demo account holds two, and may sign in as either.
+    expect(workspacesFor(["ADMIN", "ENGINEER"]).map((w) => w.id).sort()).toEqual([
+      "admin",
+      "engineer",
+    ]);
+  });
+
+  it("refuses a claim the account does not hold", () => {
+    const security = WORKSPACES.find((w) => w.id === "security")!;
+    expect(admits(security, ["ENGINEER"])).toBe(false);
+    expect(admits(security, ["SECURITY_ADMIN"])).toBe(true);
+    // Holding ADMIN does not admit you as an Engineer by saying so: the
+    // interface would then show a smaller product than the server gives.
+    const engineer = WORKSPACES.find((w) => w.id === "engineer")!;
+    expect(admits(engineer, ["ADMIN"])).toBe(false);
+  });
+
+  it("gives every role a home it can actually open", () => {
     for (const role of ["employee", "manager", "security", "admin"] as const) {
-      const mine = workspacesFor(role);
-      expect(mine.length, role).toBeGreaterThan(0);
-      // The home a role lands on must be one they may actually open.
       expect(canOpen(role, homeFor(role)), role).toBe(true);
     }
   });
@@ -146,13 +164,9 @@ describe("workspaces", () => {
     expect(homeFor("security")).toBe("/security");
   });
 
-  it("only ever routes a workspace to somewhere its roles can open", () => {
+  it("only ever routes an identity to somewhere its rank can open", () => {
     for (const workspace of WORKSPACES) {
-      for (const role of workspace.roles) {
-        expect(canOpen(role, workspace.home), `${workspace.id}/${role}`).toBe(
-          true,
-        );
-      }
+      expect(canOpen(workspace.role, workspace.home), workspace.id).toBe(true);
     }
   });
 });

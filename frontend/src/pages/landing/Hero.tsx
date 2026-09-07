@@ -1,8 +1,11 @@
+import { Suspense, lazy } from "react";
 import { useReducedMotion } from "framer-motion";
 import { Lock, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EnterWorkbenchButton } from "@/pages/landing/actions";
 import { HeroPipeline } from "@/pages/landing/HeroPipeline";
+
+const SovereignCore = lazy(() => import("@/pages/landing/SovereignCore"));
 
 const TRUST = [
   { Icon: Lock, label: "LOCAL ONLY" },
@@ -39,6 +42,15 @@ export function Hero() {
         }}
       />
       <GridBackdrop />
+
+      {/* The sovereignty boundary, rendered. It sits behind the copy rather
+          than beside it: the headline is the message, and the object is the
+          atmosphere the message stands in. Lazily loaded, so the three.js
+          bundle never delays the first paint, and the hero reads correctly
+          with nothing rendered at all. */}
+      <Suspense fallback={null}>
+        <SovereignCore />
+      </Suspense>
 
       <div className="relative mx-auto w-full max-w-6xl">
         <div {...enter(0)} className="rise-in mx-auto max-w-3xl text-center">

@@ -122,60 +122,90 @@ export function canOpen(role: WorkspaceRole, pathname: string): boolean {
   return ruleFor(pathname)?.roles.includes(role) ?? false;
 }
 
-/** A workspace on the chooser: a place in the product, and who works there. */
+/**
+ * A workspace, which is to say a role.
+ *
+ * The chooser asks people to say who they are signing in as -- Engineer,
+ * Analyst, Manager, Security Administrator, Administrator -- rather than to
+ * pick an abstract area. It is the question a person can actually answer about
+ * themselves, and it makes the check at sign-in a plain one: the role they
+ * claimed either is among the roles the server returns, or it is not.
+ *
+ * `backendRole` is what that claim is checked against. `role` is the rank it
+ * resolves to, which is what decides the navigation.
+ */
 export type Workspace = {
   id: string;
   name: string;
+  /** What this person does, in their own terms. */
   blurb: string[];
-  /** Who is admitted. Checked after sign-in, never before. */
-  roles: WorkspaceRole[];
-  /** Where entering it lands. */
+  /** The backend role being claimed. */
+  backendRole: Role;
+  /** The rank it maps to. */
+  role: WorkspaceRole;
+  /** Where signing in as this lands. */
   home: string;
 };
 
 export const WORKSPACES: Workspace[] = [
   {
-    id: "engineering",
-    name: "Engineering & Operations",
+    id: "engineer",
+    name: "Engineer",
     blurb: [
-      "Ask the workbench, with your documents",
+      "Ask the workbench, grounded in your documents",
       "Upload drawings, reports and PDFs",
       "Your own dashboard and chat history",
     ],
-    roles: ["employee", "manager", "admin"],
+    backendRole: "ENGINEER",
+    role: "employee",
     home: "/dashboard",
   },
   {
-    id: "management",
-    name: "Management",
+    id: "analyst",
+    name: "Analyst",
+    blurb: [
+      "Search and cross-reference the corpus",
+      "Generated reports and artifacts",
+      "The same working surface as an engineer",
+    ],
+    backendRole: "ANALYST",
+    role: "employee",
+    home: "/dashboard",
+  },
+  {
+    id: "manager",
+    name: "Manager",
     blurb: [
       "Approval requests awaiting a decision",
       "Task activity across the team",
-      "Reports and decision support",
+      "Everything an engineer can do, as well",
     ],
-    roles: ["manager", "admin"],
+    backendRole: "MANAGER",
+    role: "manager",
     home: "/approvals",
   },
   {
     id: "security",
-    name: "Security & Audit",
+    name: "Security Administrator",
     blurb: [
       "Sovereignty monitor and network events",
-      "The audit ledger",
-      "Policy in force, model status",
+      "The audit ledger and the policy in force",
+      "Oversight only — no chat, no corpus",
     ],
-    roles: ["security", "admin"],
+    backendRole: "SECURITY_ADMIN",
+    role: "security",
     home: "/security",
   },
   {
-    id: "administration",
-    name: "Administration",
+    id: "admin",
+    name: "Administrator",
     blurb: [
       "The whole system",
       "Model registry and the code sandbox",
-      "Every oversight surface",
+      "Every working and oversight surface",
     ],
-    roles: ["admin"],
+    backendRole: "ADMIN",
+    role: "admin",
     home: "/dashboard",
   },
 ];
@@ -184,19 +214,33 @@ export function workspaceById(id: string | null): Workspace | undefined {
   return id ? WORKSPACES.find((workspace) => workspace.id === id) : undefined;
 }
 
-/** The workspaces a role may actually enter. Never empty: everyone has one. */
-export function workspacesFor(role: WorkspaceRole): Workspace[] {
-  return WORKSPACES.filter((workspace) => workspace.roles.includes(role));
+/**
+ * Whether the credentials bear out the claim that was made.
+ *
+ * The declared role has to be one the account actually holds. Someone holding
+ * ADMIN is not admitted as an Engineer by saying so -- the interface would then
+ * be showing them a smaller product than the server will give them, which is a
+ * different kind of lie but still a lie.
+ */
+export function admits(workspace: Workspace, held: readonly Role[]): boolean {
+  return held.includes(workspace.backendRole);
+}
+
+/** The identities an account can legitimately sign in as. */
+export function workspacesFor(held: readonly Role[]): Workspace[] {
+  const mine = WORKSPACES.filter((workspace) => admits(workspace, held));
+  // An account whose roles are all unrecognised still needs somewhere to be.
+  return mine.length > 0 ? mine : [WORKSPACES[0]];
 }
 
 /**
- * Where a role lands with no workspace chosen.
+ * Where a role lands with nothing chosen.
  *
  * A security administrator's home is the Security Center, not a dashboard they
  * have no data for — landing somewhere empty reads as broken.
  */
 export function homeFor(role: WorkspaceRole): string {
-  return workspacesFor(role)[0]?.home ?? "/settings";
+  return WORKSPACES.find((workspace) => workspace.role === role)?.home ?? "/settings";
 }
 
 /**

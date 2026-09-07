@@ -1,20 +1,20 @@
 /**
- * The workspace chooser, and the sign-in that settles the claim it makes.
+ * "Who are you signing in as?", and the sign-in that settles the answer.
  *
- * The flow the product now runs: the landing page sends everyone here, someone
- * says which part of the plant they work in, and only then do they sign in.
- * Three things matter and none of them is cosmetic.
+ * The flow the product runs: the landing page sends everyone here, someone
+ * states the role they hold, and only then do they sign in. Three things
+ * matter and none of them is cosmetic.
  *
- * Choosing must never be a route to privilege. Before sign-in this screen has
- * no idea who is looking at it, so it offers every workspace — disabling them
- * would both leak the shape of the organisation and be a lie. The claim is
- * settled at sign-in, against the role the server returns.
+ * Stating a role must never be a route to privilege. Before sign-in this
+ * screen has no idea who is looking at it, so it offers every role —
+ * disabling any would both leak the shape of the organisation and be a lie.
+ * The claim is settled at sign-in, against the roles the server returns.
  *
- * A refusal has to say so. Someone who picks Security and signs in as an
- * engineer must land back here with the reason and their real options, not be
- * dropped silently on a dashboard they did not ask for.
+ * A refusal has to say so. Someone who says Security Administrator and signs
+ * in as an engineer must land back here with the reason and their real
+ * identities, not be dropped silently somewhere they did not ask for.
  *
- * And a role with one workspace is not making a choice, so it does not get a
+ * And an account holding one role is not making a choice, so it does not get a
  * screen with one button on it.
  */
 
@@ -104,53 +104,51 @@ async function signIn() {
   await userEvent.click(screen.getByRole("button", { name: /Sign In/i }));
 }
 
-describe("the workspace chooser", () => {
+describe("signing in as a role", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     tokenStore.clear();
     workspaceIntent.clear();
   });
 
-  it("offers every workspace to an anonymous visitor, none of them disabled", async () => {
+  it("offers every role to an anonymous visitor, none of them disabled", async () => {
     renderFlow(["ENGINEER"]);
 
     const card = await screen.findByRole("button", {
-      name: /Enter the Security & Audit workspace/i,
+      name: /Sign in as Security Administrator/i,
     });
     // It cannot know who this is yet, so it must not pretend to.
     expect(card).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: /Enter the Engineering & Operations/i }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Sign in as Engineer/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Sign in as Analyst/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Sign in as Administrator/i })).toBeEnabled();
   });
 
-  it("sends the choice to sign-in, naming the workspace being entered", async () => {
+  it("carries the stated role to sign-in, and names it there", async () => {
     renderFlow(["ENGINEER"]);
 
     await userEvent.click(
-      await screen.findByRole("button", {
-        name: /Enter the Engineering & Operations workspace/i,
-      }),
+      await screen.findByRole("button", { name: /Sign in as Engineer/i }),
     );
 
     await waitFor(() =>
       expect(screen.getByTestId("where")).toHaveTextContent(
-        "/login?workspace=engineering",
+        "/login?workspace=engineer",
       ),
     );
-    expect(screen.getByText(/Signing in to/i)).toBeInTheDocument();
-    expect(screen.getByText("Engineering & Operations")).toBeInTheDocument();
+    expect(screen.getByText(/Signing in as/i)).toBeInTheDocument();
+    expect(screen.getByText("Engineer")).toBeInTheDocument();
   });
 
-  it("admits an engineer to the workspace they chose", async () => {
-    renderFlow(["ENGINEER"], { entry: "/login?workspace=engineering" });
+  it("admits an engineer who said they were one", async () => {
+    renderFlow(["ENGINEER"], { entry: "/login?workspace=engineer" });
 
     await signIn();
 
     expect(await screen.findByText("Dashboard screen")).toBeInTheDocument();
   });
 
-  it("refuses a workspace the role does not hold, and says which one", async () => {
+  it("refuses a role the account does not hold, and says which one", async () => {
     // The whole point of the flow: the claim is settled by the credentials.
     renderFlow(["ENGINEER"], { entry: "/login?workspace=security" });
 
@@ -162,31 +160,33 @@ describe("the workspace chooser", () => {
       ),
     );
     expect(
-      await screen.findByText(/not admitted to/i),
+      await screen.findByText(/does not hold/i),
     ).toBeInTheDocument();
     expect(screen.queryByText("Security screen")).not.toBeInTheDocument();
   });
 
-  it("shows the refused engineer only the workspaces they do hold", async () => {
+  it("shows the refused engineer only the identities the account holds", async () => {
     renderFlow(["ENGINEER"], {
       signedIn: true,
       entry: "/workspaces?denied=security",
     });
 
     expect(
-      await screen.findByRole("button", {
-        name: /Enter the Engineering & Operations workspace/i,
-      }),
+      await screen.findByRole("button", { name: /Sign in as Engineer/i }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Enter the Security & Audit/i }),
+      screen.queryByRole("button", { name: /Sign in as Security Administrator/i }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Enter the Administration/i }),
+      screen.queryByRole("button", { name: /Sign in as Administrator/i }),
+    ).not.toBeInTheDocument();
+    // An engineer is not an analyst either, even though both are "employee".
+    expect(
+      screen.queryByRole("button", { name: /Sign in as Analyst/i }),
     ).not.toBeInTheDocument();
   });
 
-  it("admits a security administrator to the security workspace", async () => {
+  it("admits a security administrator who said they were one", async () => {
     renderFlow(["SECURITY_ADMIN"], { entry: "/login?workspace=security" });
 
     await signIn();
@@ -194,8 +194,8 @@ describe("the workspace chooser", () => {
     expect(await screen.findByText("Security screen")).toBeInTheDocument();
   });
 
-  it("does not stop a single-workspace role on a screen with one button", async () => {
-    // An engineer holds exactly one workspace; asking them to pick it is noise.
+  it("does not stop a single-role account on a screen with one button", async () => {
+    // An engineer holds exactly one identity; asking them to pick it is noise.
     renderFlow(["ENGINEER"], { signedIn: true });
 
     expect(await screen.findByText("Dashboard screen")).toBeInTheDocument();
@@ -205,23 +205,22 @@ describe("the workspace chooser", () => {
     renderFlow(["ENGINEER"], { signedIn: true, entry: "/workspaces?choose=1" });
 
     expect(
-      await screen.findByRole("heading", { name: /Choose your workspace/i }),
+      await screen.findByRole("heading", { name: /Continue as/i }),
     ).toBeInTheDocument();
   });
 
-  it("lets an administrator, who holds several, actually choose", async () => {
-    renderFlow(["ADMIN"], { signedIn: true });
+  it("lets an account holding several actually choose between them", async () => {
+    // The seeded demo account is exactly this shape.
+    renderFlow(["ADMIN", "ENGINEER"], { signedIn: true });
 
     await userEvent.click(
-      await screen.findByRole("button", {
-        name: /Enter the Security & Audit workspace/i,
-      }),
+      await screen.findByRole("button", { name: /Sign in as Engineer/i }),
     );
 
-    expect(await screen.findByText("Security screen")).toBeInTheDocument();
+    expect(await screen.findByText("Dashboard screen")).toBeInTheDocument();
   });
 
-  it("sends someone signing in with no workspace chosen to their own home", async () => {
+  it("sends someone signing in with nothing stated to their own home", async () => {
     renderFlow(["SECURITY_ADMIN"], { entry: "/login" });
 
     await signIn();

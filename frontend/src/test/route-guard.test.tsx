@@ -80,9 +80,10 @@ describe("typing a URL above your role", () => {
     expect(
       await screen.findByText(/not part of your workspace/i, {}, { timeout: 5000 }),
     ).toBeInTheDocument();
+    // The employee rank covers both Engineer and Analyst, so both are named.
     expect(
-      screen.getByRole("link", { name: /Engineering & Operations/i }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("link", { name: /Engineer|Analyst/i }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("refuses the corpus to a security administrator", async () => {
@@ -94,8 +95,8 @@ describe("typing a URL above your role", () => {
       await screen.findByText(/not part of your workspace/i, {}, { timeout: 5000 }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /Security & Audit/i }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("link", { name: /Security Administrator/i }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("refuses the code sandbox to a manager", async () => {

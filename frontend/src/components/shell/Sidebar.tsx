@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   Boxes,
   ClipboardCheck,
@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Library,
   ListChecks,
-  Lock,
   PanelLeft,
   Settings,
   Shield,
@@ -57,7 +56,15 @@ export function Sidebar({
 }) {
   const { user } = useAuth();
   const { roles } = useRole();
+  const location = useLocation();
   const role = workspaceRole(roles);
+
+  // Which surface's history this is, if any.
+  const historyKind = location.pathname.startsWith("/coding")
+    ? ("coding" as const)
+    : location.pathname.startsWith("/workbench")
+      ? ("ai" as const)
+      : null;
 
   // Items this workspace role cannot reach are hidden -- with one exception
   // below. The same predicate the router uses, so the two cannot drift.
@@ -89,26 +96,27 @@ export function Sidebar({
           <Link key={item.to} item={item} collapsed={collapsed} />
         ))}
 
-        {!collapsed && <div className="nav-group-label">Oversight</div>}
-        {SECONDARY.map((item) => {
-          const permitted = canOpen(role, item.to);
-          // Security Center stays visible but locked for roles that cannot
-          // enter it. Knowing the system *has* oversight is part of what the
-          // product is arguing, so hiding it entirely would understate it.
-          if (!permitted && item.to !== "/security") return null;
-          return permitted ? (
-            <Link key={item.to} item={item} collapsed={collapsed} />
-          ) : (
-            <LockedLink key={item.to} item={item} collapsed={collapsed} />
-          );
-        })}
+        {!collapsed && visible(SECONDARY).length > 0 && (
+          <div className="nav-group-label">Oversight</div>
+        )}
+        {/* Nothing a role cannot enter appears at all. An earlier version kept
+            the Security Center visible-but-locked, on the argument that knowing
+            the system has oversight is part of what the product claims. In a
+            plant that reads as a door you are being shown and refused, which is
+            worse than not being shown it: the sovereignty badge in the header
+            already tells everyone the oversight exists. */}
+        {visible(SECONDARY).map((item) => (
+          <Link key={item.to} item={item} collapsed={collapsed} />
+        ))}
       </nav>
 
-      {/* Conversations belong to roles that hold the workbench. For the rest
-          the panel is absent, not empty -- an empty history reads as broken
-          rather than as the boundary doing its job. */}
-      {canOpen(role, "/workbench") ? (
-        <ChatHistory collapsed={collapsed} />
+      {/* History belongs to the surface that produced it, and appears only
+          while you are standing in that surface: the AI workbench lists its own
+          sessions, the coding workspace lists its own. Elsewhere the panel is
+          absent rather than empty -- an empty list reads as broken rather than
+          as the boundary doing its job. */}
+      {historyKind && canOpen(role, location.pathname) ? (
+        <ChatHistory kind={historyKind} collapsed={collapsed} />
       ) : (
         <div className="sidebar-scroll" />
       )}
@@ -147,26 +155,5 @@ function Link({ item, collapsed }: { item: Item; collapsed: boolean }) {
       </span>
       {!collapsed && <span className="label">{label}</span>}
     </NavLink>
-  );
-}
-
-function LockedLink({ item, collapsed }: { item: Item; collapsed: boolean }) {
-  const { Icon, label } = item;
-  return (
-    <div
-      className="nav-item locked"
-      title={`${label} — requires an administrator or security role`}
-      aria-disabled
-    >
-      <span className="ico">
-        <Icon className="size-4" aria-hidden />
-      </span>
-      {!collapsed && (
-        <>
-          <span className="label">{label}</span>
-          <Lock className="size-3" aria-hidden />
-        </>
-      )}
-    </div>
   );
 }

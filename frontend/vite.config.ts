@@ -32,6 +32,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id: string) {
+          // three.js is the heaviest thing in the app and only the landing
+          // page uses it. Its own chunk keeps it off every other route.
+          if (id.includes("three") || id.includes("@react-three")) return "three";
           if (id.includes("framer-motion")) return "motion";
           if (id.includes("@tanstack")) return "query";
           if (id.includes("recharts") || id.includes("d3-")) return "charts";
