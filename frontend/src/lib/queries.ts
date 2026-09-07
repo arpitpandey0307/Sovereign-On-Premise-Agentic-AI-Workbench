@@ -19,8 +19,11 @@ import {
 } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type {
+  Artifact,
   Conversation,
+  DocumentPage,
   DocumentSummary,
+  EquipmentGraph,
   FileRecord,
   ModelDescriptor,
   Page,
@@ -53,6 +56,8 @@ export const keys = {
   taskExecution: (id: string) => ["tasks", id, "execution"] as const,
   taskArtifacts: (id: string) => ["tasks", id, "artifacts"] as const,
   taskReceipt: (id: string) => ["tasks", id, "receipt"] as const,
+  artifact: (id: string) => ["artifacts", id] as const,
+  equipment: (tag: string) => ["knowledge", "equipment", tag] as const,
   conversations: ["conversations"] as const,
   models: ["models"] as const,
   modelHealth: ["models", "health"] as const,
@@ -135,6 +140,45 @@ export function useDocument(id: string, options?: Options<DocumentSummary>) {
   });
 }
 
+export function useDocumentPage(
+  id: string,
+  page: number,
+  options?: Options<DocumentPage>,
+) {
+  return useQuery({
+    queryKey: keys.documentPage(id, page),
+    queryFn: () =>
+      api.get<DocumentPage>(`/api/v1/documents/${id}/pages/${page}`),
+    enabled: Boolean(id) && page >= 1,
+    ...REFERENCE,
+    ...options,
+  });
+}
+
+/**
+ * Re-run ingestion for a document processed while OCR or the model runtime was
+ * down. Keyed by the underlying `file_id`, not the document id.
+ */
+export function useReingest() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (fileId: string) =>
+      api.post(`/api/v1/documents/reingest/${fileId}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
+export function useDeleteFile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (fileId: string) => api.delete(`/api/v1/files/${fileId}`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.files });
+      client.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
 /**
  * Upload a file.
  *
@@ -166,6 +210,45 @@ export function useKnowledgeSearch() {
       limit?: number;
       document_ids?: string[];
     }) => api.post<SearchResponse>("/api/v1/knowledge/search", body),
+  });
+}
+
+/** The equipment graph: what relates to a tag, and how the link was found. */
+export function useEquipment(tag: string, options?: Options<EquipmentGraph>) {
+  return useQuery({
+    queryKey: keys.equipment(tag),
+    queryFn: () =>
+      api.get<EquipmentGraph>(
+        `/api/v1/knowledge/equipment/${encodeURIComponent(tag)}`,
+      ),
+    enabled: Boolean(tag),
+    ...REFERENCE,
+    ...options,
+  });
+}
+
+// --- artifacts -----------------------------------------------------------------
+
+export function useTaskArtifacts(
+  taskId: string,
+  options?: Options<{ artifacts: Artifact[] }>,
+) {
+  return useQuery({
+    queryKey: keys.taskArtifacts(taskId),
+    queryFn: () =>
+      api.get<{ artifacts: Artifact[] }>(`/api/v1/tasks/${taskId}/artifacts`),
+    enabled: Boolean(taskId),
+    ...LIVE,
+    ...options,
+  });
+}
+
+export function useArtifact(id: string, options?: Options<Artifact>) {
+  return useQuery({
+    queryKey: keys.artifact(id),
+    queryFn: () => api.get<Artifact>(`/api/v1/artifacts/${id}`),
+    enabled: Boolean(id),
+    ...options,
   });
 }
 

@@ -35,6 +35,12 @@ const Approvals = lazy(() =>
 const Coding = lazy(() =>
   import("@/pages/Coding").then((m) => ({ default: m.Coding })),
 );
+const Documents = lazy(() =>
+  import("@/pages/Documents").then((m) => ({ default: m.Documents })),
+);
+const DocumentViewer = lazy(() =>
+  import("@/pages/DocumentViewer").then((m) => ({ default: m.DocumentViewer })),
+);
 const Placeholder = lazy(() =>
   import("@/pages/Placeholder").then((m) => ({ default: m.Placeholder })),
 );
@@ -115,16 +121,8 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/tasks/:id" element={<TaskTrace />} />
         <Route path="/approvals" element={<Approvals />} />
-        <Route
-          path="/documents"
-          element={<Placeholder name="Documents" part="Part 04" />}
-        />
-        {/* The citation "View source" target. Part 04 replaces this with the
-            document viewer, opened at the cited page. */}
-        <Route
-          path="/documents/:id"
-          element={<Placeholder name="The Document Viewer" part="Part 04" />}
-        />
+        <Route path="/documents" element={<Documents />} />
+        <Route path="/documents/:id" element={<DocumentViewer />} />
         <Route
           path="/knowledge"
           element={<Placeholder name="The Knowledge Base" part="Part 04" />}

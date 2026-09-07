@@ -131,6 +131,8 @@ export type Citation = {
   page: number | null;
   section: string | null;
   score: number | null;
+  /** The cited passage, if the backend sent it — used to highlight in the viewer. */
+  text?: string;
   /** A finding the generator could not support renders as unsupported. */
   unsupported?: boolean;
 };
@@ -205,6 +207,7 @@ function readCitations(data: Record<string, unknown>): Citation[] {
       page: num(c.page ?? c.page_number),
       section: str(c.section) || null,
       score: num(c.score),
+      text: str(c.text) || str(c.snippet) || str(c.quote) || undefined,
       unsupported: c.unsupported === true || str(c.support) === "none",
     };
   });

@@ -135,6 +135,24 @@ export type DocumentSummary = {
   created_at: string;
 };
 
+/**
+ * One page of a document.
+ *
+ * `text` is the real text layer plus anything OCR recovered. `vision_summary`
+ * is a model's description of the page and the backend keeps it *out* of
+ * `text` deliberately, so a generated description can never be quoted as the
+ * page's own words. The UI must preserve that separation.
+ */
+export type DocumentPage = {
+  document_id: string;
+  page_number: number;
+  text: string;
+  ocr_status: "none" | "ocr" | "failed" | string;
+  ocr_confidence: number | null;
+  vision_summary: string | null;
+  vision_model: string | null;
+};
+
 export type Evidence = {
   document_id: string;
   document_name: string;
@@ -142,6 +160,46 @@ export type Evidence = {
   section: string | null;
   text: string;
   score: number;
+};
+
+/**
+ * A deliverable the Workbench produced.
+ *
+ * A failed artifact is kept and shown, not hidden -- `validation_detail` lists
+ * every check the validator ran with its result, so the operator can see what
+ * it objected to. Typed permissively; the backend owns the exact shape.
+ */
+export type Artifact = {
+  id: string;
+  task_id?: string;
+  filename: string;
+  mime_type?: string;
+  size_bytes?: number;
+  created_at?: string;
+  validation_status?: "passed" | "failed" | "pending" | string;
+  validation_detail?: Array<{ check: string; result: string; message?: string }>;
+  preview?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+/**
+ * "What relates to P-103", answered as a graph traversal. `source` says how:
+ * `graph_traversal` is a real modelled relationship; `page_co_occurrence` only
+ * means the tags appear on the same page, which is a weaker claim and must be
+ * labelled as such.
+ */
+export type EquipmentGraph = {
+  tag: string;
+  type?: string;
+  source: "graph_traversal" | "page_co_occurrence" | string;
+  neighbours?: Array<{
+    tag: string;
+    type?: string;
+    relation?: string;
+    documents?: Array<{ id: string; name: string; page?: number }>;
+  }>;
+  documents?: Array<{ id: string; name: string; page?: number }>;
+  [key: string]: unknown;
 };
 
 export type SearchResponse = {

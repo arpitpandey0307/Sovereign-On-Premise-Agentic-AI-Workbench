@@ -15,6 +15,16 @@ import { api, describeError } from "@/lib/api";
 import type { ArtifactRef, Citation } from "@/lib/pipeline";
 import { formatBytes } from "@/lib/format";
 
+/** The viewer link for a citation: the document, its page, and the passage to
+ *  highlight if the backend sent one. */
+function sourceHref(c: Citation): string {
+  const params = new URLSearchParams();
+  if (c.page != null) params.set("page", String(c.page));
+  if (c.text) params.set("q", c.text.slice(0, 240));
+  const query = params.toString();
+  return `/documents/${c.documentId}${query ? `?${query}` : ""}`;
+}
+
 export function Citations({ items }: { items: Citation[] }) {
   if (!items.length) return null;
   return (
@@ -42,7 +52,7 @@ export function Citations({ items }: { items: Citation[] }) {
                 citation that carries a document id can be opened. */}
             {c.documentId && (
               <Link
-                to={`/documents/${c.documentId}${c.page != null ? `?page=${c.page}` : ""}`}
+                to={sourceHref(c)}
                 className="btn btn-sm btn-accent"
               >
                 <ExternalLink className="size-3.5" aria-hidden />
