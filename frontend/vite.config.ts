@@ -9,6 +9,12 @@ import { fileURLToPath } from "node:url";
 // base-URL switch to get wrong.
 const API_TARGET = process.env.VITE_API_TARGET ?? "http://127.0.0.1:8000";
 
+const PROXY = {
+  "/api": { target: API_TARGET, changeOrigin: true },
+  "/health": { target: API_TARGET, changeOrigin: true },
+  "/internal": { target: API_TARGET, changeOrigin: true },
+};
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -19,11 +25,15 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
-      "/api": { target: API_TARGET, changeOrigin: true },
-      "/health": { target: API_TARGET, changeOrigin: true },
-      "/internal": { target: API_TARGET, changeOrigin: true },
-    },
+    proxy: PROXY,
+  },
+  // `vite preview` does not inherit the dev server's proxy. Without this the
+  // production build serves, and then every API call 404s -- which is the one
+  // configuration a demo is most likely to be run from, since the built app is
+  // far lighter than the dev server.
+  preview: {
+    port: 4173,
+    proxy: PROXY,
   },
   build: {
     outDir: "dist",

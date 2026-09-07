@@ -62,6 +62,11 @@ id_rsa*
 /models/
 /ollama/
 
+# The downloaded demonstration datasets. Hundreds of megabytes of public
+# corpora and the files generated or extracted from them -- reproducible with
+# scripts/build_demo_corpus.py and scripts/ingest_corpus.py, so not committed.
+dataset corpus/
+
 # Uploaded documents and generated artifacts (may contain confidential data)
 artifacts/
 uploads/
