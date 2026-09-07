@@ -1394,3 +1394,48 @@ body {
   color: var(--text-faint);
   margin-top: 8px;
 }
+
+
+/* The workbench and the coding workspace fill the frame and scroll inside it,
+   so the composer sits on the bottom edge rather than floating in the middle
+   of an empty screen. */
+.view-chat { overflow: hidden; }
+.view-chat > * { height: 100%; min-height: 0; }
+
+/* The four things people come here to do, beside the composer. */
+.quick-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  width: 100%;
+  max-width: 760px;
+  margin: 18px 0 6px;
+}
+.quick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 13px 14px;
+  text-align: left;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .03) 0%, transparent 44%),
+    var(--panel-2);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.quick-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 34%, var(--border));
+  box-shadow: 0 12px 26px -18px rgba(0, 0, 0, .85);
+}
+.quick-card .t { margin-top: 8px; font-size: 13px; font-weight: 500; color: var(--text); }
+.quick-card .d { font-size: 11.5px; color: var(--text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-card { transition: none; }
+  .quick-card:hover { transform: none; }
+}

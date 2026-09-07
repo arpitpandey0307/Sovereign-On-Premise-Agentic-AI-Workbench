@@ -23,6 +23,8 @@ import {
 } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
+  BarChart3,
+  FileSearch,
   FileText,
   Gauge,
   Image as ImageIcon,
@@ -32,6 +34,7 @@ import {
   Paperclip,
   Plus,
   Table2,
+  Terminal,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -60,6 +63,44 @@ import { Citations, Outputs } from "@/components/workbench/Sources";
 import { ConfidenceRow } from "@/components/workbench/ConfidenceRow";
 import { ModelRoutingCard } from "@/components/workbench/ModelRoutingCard";
 import { CodeExecution } from "@/components/workbench/CodeExecution";
+
+/**
+ * The four things people come here to do, moved from the dashboard.
+ *
+ * They belong beside the composer, not on another screen: the attachments,
+ * the effort control and the thread are all here, and a second half-featured
+ * entry point elsewhere only split the flow in two.
+ */
+const QUICK_ACTIONS = [
+  {
+    Icon: FileSearch,
+    label: "Analyse a document",
+    hint: "Findings with a citation for each",
+    prompt:
+      "Analyse the attached document and summarise its key findings, with a citation for each point.",
+  },
+  {
+    Icon: ImageIcon,
+    label: "Read a drawing",
+    hint: "Tags and connections from a P&ID",
+    prompt:
+      "Identify the equipment, tags and connections on the attached P&ID and describe the process loop.",
+  },
+  {
+    Icon: Terminal,
+    label: "Coding task",
+    hint: "Runs in the sandbox",
+    prompt:
+      "Write and run a script that parses the attached data file and reports the outliers.",
+  },
+  {
+    Icon: BarChart3,
+    label: "Data analysis",
+    hint: "Numbers, and what they show",
+    prompt:
+      "Summarise the attached operational data, find the outliers, and produce a chart alongside the numbers.",
+  },
+];
 
 type Effort = "low" | "balanced" | "high";
 
@@ -520,9 +561,25 @@ export function Workbench() {
             <div className="glyph" />
             <h3>What would you like the workbench to do?</h3>
             <p>
-              Attach the documents, ask the question. You will see the plan
-              before anything runs, then each stage as it happens.
+              Ask anything. A question about the plant is answered from the
+              corpus with citations; anything else is answered directly.
             </p>
+
+            <div className="quick-grid">
+              {QUICK_ACTIONS.map(({ Icon, label, hint, prompt }) => (
+                <button
+                  key={label}
+                  type="button"
+                  className="quick-card"
+                  onClick={() => setDraft(prompt)}
+                >
+                  <Icon className="size-4 text-accent" aria-hidden />
+                  <span className="t">{label}</span>
+                  <span className="d">{hint}</span>
+                </button>
+              ))}
+            </div>
+
             <div className="suggestion-row">
               {SUGGESTIONS.map((suggestion) => (
                 <button

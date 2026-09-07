@@ -66,9 +66,26 @@ def _emit(state: TaskState, event: str, data: dict) -> None:
 
 def analyse_request(state: TaskState) -> dict:
     """Decide what the request needs. Deterministic, no model."""
-    requirements, artifact_type = planner.analyse(
-        state["request"], has_inputs=bool(state.get("input_files"))
-    )
+    has_inputs = bool(state.get("input_files"))
+
+    # Small talk and general questions are answered directly. An assistant that
+    # cannot say "hello" without searching a document corpus does not read as
+    # rigorous, and a greeting answered with citations teaches people to
+    # ignore citations.
+    if planner.is_conversational(state["request"], has_inputs=has_inputs):
+        _emit(
+            state,
+            "request_analysed",
+            {"requirements": ["conversation"], "artifact_type": "none"},
+        )
+        return {
+            "conversational": True,
+            "requirements": ["conversation"],
+            "intermediate_results": [{"artifact_type": ""}],
+            "steps": [step("analyse_request", requirements=["conversation"])],
+        }
+
+    requirements, artifact_type = planner.analyse(state["request"], has_inputs=has_inputs)
     _emit(
         state,
         "request_analysed",
@@ -190,6 +207,48 @@ def retrieve(state: TaskState) -> dict:
     }
 
 
+def _as_prose(content) -> str:
+    """Render the model's structured findings as something a person reads.
+
+    The reasoning step has always produced real prose -- a summary, findings
+    each with their citations, recommendations -- and it went straight into the
+    artifact without ever reaching the thread. So a grounded question returned
+    sources and the words "the task finished without returning text", which
+    reads as a failure rather than as an answer.
+
+    This is a rendering of what the model actually said, not a second
+    generation: nothing is added, and the citations shown beside it are the
+    same evidence the findings name.
+    """
+    parts: list[str] = []
+
+    summary = (getattr(content, "summary", "") or "").strip()
+    if summary:
+        parts.append(summary)
+
+    findings = getattr(content, "findings", None) or []
+    if findings:
+        lines = []
+        for finding in findings:
+            text = (getattr(finding, "text", "") or "").strip()
+            if not text:
+                continue
+            citation = (getattr(finding, "citation", "") or "").strip()
+            lines.append(f"- {text}" + (f" [{citation}]" if citation else ""))
+        if lines:
+            parts.append("Findings:\n" + "\n".join(lines))
+
+    recommendations = [
+        r.strip() for r in (getattr(content, "recommendations", None) or []) if r.strip()
+    ]
+    if recommendations:
+        parts.append(
+            "Recommendations:\n" + "\n".join(f"- {r}" for r in recommendations)
+        )
+
+    return "\n\n".join(parts).strip()
+
+
 def reason(state: TaskState) -> dict:
     """The generative step: evidence in, structured findings out."""
     document_text = "\n\n".join(
@@ -233,13 +292,22 @@ def reason(state: TaskState) -> dict:
             "classification": state.get("classification", "INTERNAL"),
         },
     )
+    answer = _as_prose(content)
     _emit(
         state,
         "reasoning_completed",
-        {"findings": len(content.findings), "model_id": model_id},
+        {
+            "findings": len(content.findings),
+            "model_id": model_id,
+            # The answer itself, so the thread shows it as it arrives rather
+            # than reporting that nothing came back.
+            "output_text": answer,
+            "grounded": True,
+        },
     )
     return {
         "draft": content.model_dump(mode="json"),
+        "answer": answer,
         "selected_models": [model_id] if model_id else [],
         "steps": [step("reason", findings=len(content.findings), model=model_id)],
     }
@@ -395,6 +463,44 @@ def validate_artifact(state: TaskState) -> dict:
     }
 
 
+def converse(state: TaskState) -> dict:
+    """Answer a conversational turn with the model alone.
+
+    No retrieval and no artifact: the answer is the deliverable. The text is
+    put on the event stream so the thread renders it as it arrives, and kept on
+    the state so a reopened conversation shows the same words.
+    """
+    with SessionLocal() as db:
+        answer, model_id, failure = planner.answer_directly(
+            db,
+            request=state["request"],
+            classification=state.get("classification", "INTERNAL"),
+            effort=state.get("effort", "balanced"),
+        )
+
+    if not answer:
+        _emit(state, "reasoning_failed", {"error": failure})
+        return {
+            "status": "failed",
+            "errors": [error("converse", failure)],
+            "steps": [step("converse", ok=False, reason=failure)],
+        }
+
+    if model_id:
+        _emit(state, "model_selected", {"model_id": model_id, "purpose": "conversation"})
+
+    _emit(
+        state,
+        "reasoning_completed",
+        {"model_id": model_id, "output_text": answer, "grounded": False},
+    )
+    return {
+        "answer": answer,
+        "selected_models": [model_id] if model_id else [],
+        "steps": [step("converse", model=model_id, characters=len(answer))],
+    }
+
+
 def finalise(state: TaskState) -> dict:
     """Settle the terminal status and say why."""
     if state.get("status") == "failed":
@@ -450,7 +556,9 @@ def route_entry(state: TaskState) -> str:
 
 
 def route_after_permissions(state: TaskState) -> str:
-    return "finalise" if state.get("status") == "failed" else "analyse_inputs"
+    if state.get("status") == "failed":
+        return "finalise"
+    return "converse" if state.get("conversational") else "analyse_inputs"
 
 
 def route_after_reason(state: TaskState) -> str:
@@ -486,6 +594,7 @@ def build_graph():
     workflow.add_node("build_plan", build_plan)
     workflow.add_node("retrieve", retrieve)
     workflow.add_node("reason", reason)
+    workflow.add_node("converse", converse)
     workflow.add_node("approval_gate", approval_gate)
     workflow.add_node("generate_artifact", generate_artifact)
     workflow.add_node("validate_artifact", validate_artifact)
@@ -500,8 +609,13 @@ def build_graph():
     workflow.add_conditional_edges(
         "check_permissions",
         route_after_permissions,
-        {"analyse_inputs": "analyse_inputs", "finalise": "finalise"},
+        {
+            "analyse_inputs": "analyse_inputs",
+            "converse": "converse",
+            "finalise": "finalise",
+        },
     )
+    workflow.add_edge("converse", "finalise")
     workflow.add_edge("analyse_inputs", "build_plan")
     workflow.add_edge("build_plan", "retrieve")
     workflow.add_edge("retrieve", "reason")

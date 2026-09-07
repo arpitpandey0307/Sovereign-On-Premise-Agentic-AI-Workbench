@@ -517,3 +517,88 @@ def test_the_run_emits_events_for_the_timeline(
         "task_completed",
     ):
         assert expected in names, f"{expected} missing from {names}"
+
+
+# --- the conversational path ----------------------------------------------
+
+
+def test_small_talk_is_not_a_corpus_question():
+    """A greeting must not start a document search.
+
+    An assistant that cannot say "hello" without scanning a corpus does not
+    read as rigorous, it reads as broken -- and a greeting answered with
+    citations teaches people that the citations are decoration.
+    """
+    from app.orchestration.planner import is_conversational
+
+    for turn in ("hi", "hello", "hey there", "good morning", "thanks", "who are you"):
+        assert is_conversational(turn, has_inputs=False), turn
+
+
+def test_a_general_question_is_answered_directly():
+    """Nothing about the plant, so there is nothing to retrieve."""
+    from app.orchestration.planner import is_conversational
+
+    assert is_conversational("What is the capital of France?", has_inputs=False)
+    assert is_conversational(
+        "write a python function to reverse a list", has_inputs=False
+    )
+
+
+def test_anything_naming_the_plant_keeps_the_grounded_path():
+    """The detector is deliberately conservative in this direction.
+
+    Guessing wrong towards "just chat" drops the grounding on a question that
+    needed it, which is the more expensive mistake: the answer then comes from
+    the model's memory of the world rather than from the plant's own records.
+    """
+    from app.orchestration.planner import is_conversational
+
+    for turn in (
+        "What must be confirmed before breaking a flange on pump P-101?",
+        "summarise SOP-204",
+        "hi, what does SOP-204 say?",
+        "what are the overdue action items?",
+        "show me the maintenance readings",
+        "explain how a centrifugal pump works",
+    ):
+        assert not is_conversational(turn, has_inputs=False), turn
+
+
+def test_an_attachment_always_keeps_the_grounded_path():
+    """Someone who attached a file is asking about that file."""
+    from app.orchestration.planner import is_conversational
+
+    assert not is_conversational("hi", has_inputs=True)
+
+
+def test_a_conversational_task_answers_without_retrieval(client, auth_headers):
+    """End to end: the run completes, and never calls the knowledge tool."""
+    conversation = client.post(
+        "/api/v1/conversations", json={"title": "hello"}, headers=auth_headers
+    ).json()
+    created = client.post(
+        "/api/v1/tasks",
+        headers=auth_headers,
+        json={"conversation_id": conversation["id"], "request_text": "hello"},
+    ).json()
+
+    deadline = time.time() + 20
+    status = "pending"
+    while time.time() < deadline:
+        status = client.get(
+            f"/api/v1/tasks/{created['id']}", headers=auth_headers
+        ).json()["status"]
+        if status in {"completed", "failed", "cancelled"}:
+            break
+        time.sleep(0.1)
+    assert status in {"completed", "failed"}
+
+    execution = client.get(
+        f"/api/v1/tasks/{created['id']}/execution", headers=auth_headers
+    ).json()
+
+    assert execution["conversational"] is True
+    # No corpus search, and so no sources to cite.
+    assert "knowledge.search" not in (execution.get("tools") or [])
+    assert not execution.get("sources")

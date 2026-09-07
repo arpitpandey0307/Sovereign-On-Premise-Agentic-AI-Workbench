@@ -45,6 +45,10 @@ export function AppShell() {
     });
   };
 
+  const ownsScroll =
+    location.pathname.startsWith("/workbench") ||
+    location.pathname.startsWith("/coding");
+
   const title =
     TITLES[location.pathname] ??
     TITLES[`/${location.pathname.split("/")[1] ?? ""}`];
@@ -60,7 +64,11 @@ export function AppShell() {
             screens can look alike at a glance -- and is short enough not to
             get in the way of someone moving quickly. Anyone who has asked for
             reduced motion gets the change with no movement. */}
-        <main className="view">
+        {/* The workbench manages its own scrolling: the thread scrolls and the
+            composer stays put at the bottom. Letting `.view` scroll instead
+            collapses the chat to its content height, which is what left the
+            input floating in the middle of an empty screen. */}
+        <main className={"view" + (ownsScroll ? " view-chat" : "")}>
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={location.pathname}
@@ -68,6 +76,7 @@ export function AppShell() {
               animate={{ opacity: 1, y: 0 }}
               exit={reduced ? { opacity: 0 } : { opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
+              style={ownsScroll ? { height: "100%", minHeight: 0 } : undefined}
             >
               <Outlet />
             </motion.div>

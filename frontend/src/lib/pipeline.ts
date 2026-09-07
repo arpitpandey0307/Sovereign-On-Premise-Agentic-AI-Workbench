@@ -449,6 +449,10 @@ export type TaskExecution = {
   task_id?: string;
   status?: string;
   request?: string;
+  /** Prose the assistant wrote. The whole deliverable on a chat turn. */
+  answer?: string;
+  /** True when the turn was answered directly, without searching the corpus. */
+  conversational?: boolean;
   /** Each planned step with the reason it is in the plan. */
   plan?: Array<{ step: string; why?: string }>;
   /** Each step as it actually ran, with whatever the orchestrator recorded. */
@@ -481,6 +485,10 @@ export function mergeExecution(
   execution: TaskExecution,
 ): PipelineState {
   const next = { ...state };
+
+  // The answer text, when the stream did not carry it -- and it never does
+  // after a restart, because the backlog is held in memory.
+  if (!next.answer && execution.answer) next.answer = execution.answer;
 
   if (next.citations.length === 0 && Array.isArray(execution.sources)) {
     next.citations = readCitations({ sources: execution.sources });

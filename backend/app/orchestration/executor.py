@@ -234,6 +234,12 @@ class LangGraphOrchestrator:
             "models": state.get("selected_models", []),
             "tools": state.get("selected_tools", []),
             "sources": state.get("retrieved_sources", []),
+            # The prose answer, when there was one. On the conversational path
+            # this is the whole deliverable, and it is the only place a
+            # reopened thread can recover it from -- the event stream's backlog
+            # does not survive a restart.
+            "answer": state.get("answer", ""),
+            "conversational": bool(state.get("conversational")),
             "artifacts": state.get("artifacts", []),
             "validation": state.get("validation_results", {}),
             "errors": state.get("errors", []),

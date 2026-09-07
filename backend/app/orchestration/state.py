@@ -42,6 +42,12 @@ class TaskState(TypedDict, total=False):
 
     # --- what execution produced ---
     retrieved_sources: list[dict]
+    # Prose the assistant wrote back. Set on the conversational path, where
+    # there is no artifact and the answer *is* the deliverable.
+    answer: str
+    # True when the turn was small talk or a general question rather than a
+    # question about the plant's own records.
+    conversational: bool
     intermediate_results: Annotated[list[dict], _append]
     draft: dict
     artifacts: Annotated[list[str], _append]
@@ -84,6 +90,8 @@ def initial_state(
         selected_models=[],
         selected_tools=[],
         retrieved_sources=[],
+        answer="",
+        conversational=False,
         intermediate_results=[],
         draft={},
         artifacts=[],
