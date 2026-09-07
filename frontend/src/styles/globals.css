@@ -382,6 +382,26 @@ label.field-label,
 
 .sidebar-scroll { flex: 1; overflow-y: auto; margin-top: 16px; }
 
+/* Recent conversations. Ported verbatim from front/css/shared.css, which is
+   the design authority for this sidebar. */
+.recent-list { display: flex; flex-direction: column; gap: 1px; }
+.recent-item {
+  display: block;
+  padding: 9px 10px; border-radius: 7px;
+  font-size: 13px; color: var(--text-mute);
+  border: none; background: transparent; width: 100%; text-align: left;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.recent-item:hover { background: var(--panel-2); color: var(--text-dim); }
+.recent-item.active { background: var(--panel-2); color: var(--text); }
+
+.session-search {
+  margin: 6px 4px 10px; width: calc(100% - 8px);
+  padding: 7px 10px; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.session-search:focus { border-color: var(--accent); }
+
 .sidebar-user {
   width: 100%; text-align: left; font: inherit;
   display: flex; align-items: center; gap: 10px;

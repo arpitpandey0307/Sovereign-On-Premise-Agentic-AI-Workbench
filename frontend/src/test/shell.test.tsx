@@ -51,12 +51,33 @@ function renderWithRole(roles: Role[]) {
 }
 
 describe("the sidebar", () => {
-  it("shows the workbench and documents to an engineer", async () => {
+  // The boundaries here are `front`'s, mapped through `lib/access`: the four
+  // ranks (employee, manager, security, admin) with the backend's five roles
+  // folded onto them. A security administrator outranks a manager and still
+  // has no chat and no corpus -- oversight and production work are different
+  // jobs, not different amounts of the same one.
+
+  it("gives an engineer their own dashboard, workbench and documents", async () => {
     renderWithRole(["ENGINEER"]);
 
     expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
-    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("My Documents")).toBeInTheDocument();
     expect(screen.getByText("Knowledge Base")).toBeInTheDocument();
+    expect(screen.getByText("Artifacts")).toBeInTheDocument();
+  });
+
+  it("keeps an engineer out of every surface above their rank", async () => {
+    renderWithRole(["ENGINEER"]);
+
+    await screen.findByText("AI Workbench");
+    // Manager and above.
+    expect(screen.queryByText("Approval Requests")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tasks")).not.toBeInTheDocument();
+    // Oversight.
+    expect(screen.queryByText("Models")).not.toBeInTheDocument();
+    // Running generated code is an administrator's tool.
+    expect(screen.queryByText("Coding Workspace")).not.toBeInTheDocument();
   });
 
   it("locks the security centre for an engineer rather than hiding it", async () => {
@@ -68,43 +89,53 @@ describe("the sidebar", () => {
     expect(item).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("hides the corpus from a security administrator", async () => {
-    // SECURITY_ADMIN oversees the system without reading its contents. That
-    // is deliberate, and the navigation has to reflect it.
+  it("gives an analyst exactly what an engineer gets", async () => {
+    // The two differ in clearance, not in navigation.
+    renderWithRole(["ANALYST"]);
+
+    expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
+    expect(screen.getByText("My Documents")).toBeInTheDocument();
+    expect(screen.queryByText("Approval Requests")).not.toBeInTheDocument();
+  });
+
+  it("adds approvals and tasks for a manager, and nothing more", async () => {
+    renderWithRole(["MANAGER"]);
+
+    expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
+    expect(screen.getByText("Approval Requests")).toBeInTheDocument();
+    expect(screen.getByText("Tasks")).toBeInTheDocument();
+    // Oversight is still not theirs.
+    expect(screen.queryByText("Models")).not.toBeInTheDocument();
+    expect(screen.getByTitle(/Security Center/i)).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("hides the corpus and the chat from a security administrator", async () => {
+    // SECURITY_ADMIN oversees the system without reading its contents or
+    // using it to work. That is `front`'s boundary and the navigation has to
+    // reflect it.
     renderWithRole(["SECURITY_ADMIN"]);
 
-    await screen.findByText("Dashboard");
-    expect(screen.queryByText("Documents")).not.toBeInTheDocument();
+    await screen.findByRole("link", { name: /Security Center/i });
+    expect(screen.queryByText("My Documents")).not.toBeInTheDocument();
     expect(screen.queryByText("Knowledge Base")).not.toBeInTheDocument();
     expect(screen.queryByText("AI Workbench")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Artifacts")).not.toBeInTheDocument();
   });
 
-  it("gives a security administrator the security centre unlocked", async () => {
+  it("gives a security administrator oversight and the audit trail", async () => {
     renderWithRole(["SECURITY_ADMIN"]);
 
-    const link = await screen.findByRole("link", { name: /Security Center/i });
-    expect(link).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: /Security Center/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Models")).toBeInTheDocument();
+    expect(screen.getByText("Tasks")).toBeInTheDocument();
+    expect(screen.getByText("Approval Requests")).toBeInTheDocument();
   });
-
-  // An analyst and a manager differ from an engineer in clearance, not in
-  // navigation. Asserting that keeps a future permission change from quietly
-  // removing a screen from a role that is supposed to have it.
-  it.each([["ANALYST"], ["MANAGER"]] as const)(
-    "gives %s the same working surface as an engineer",
-    async (role) => {
-      renderWithRole([role]);
-
-      expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
-      expect(screen.getByText("Documents")).toBeInTheDocument();
-      expect(screen.getByText("Tasks")).toBeInTheDocument();
-      expect(screen.getByText("Artifacts")).toBeInTheDocument();
-      // Neither role oversees the system, so the centre stays locked.
-      expect(screen.getByTitle(/Security Center/i)).toHaveAttribute(
-        "aria-disabled",
-        "true",
-      );
-    },
-  );
 
   it("gives an administrator both the work surface and oversight", async () => {
     // ADMIN is the only role holding both halves, which makes it the one that
@@ -112,13 +143,26 @@ describe("the sidebar", () => {
     renderWithRole(["ADMIN"]);
 
     expect(await screen.findByText("AI Workbench")).toBeInTheDocument();
-    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("My Documents")).toBeInTheDocument();
+    expect(screen.getByText("Coding Workspace")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /Security Center/i }),
     ).toBeInTheDocument();
   });
 
-  it("shows every role its own label and the dashboard", async () => {
+  it("shows the chat history only to roles that hold the workbench", async () => {
+    const { unmount } = renderWithRole(["ENGINEER"]);
+    expect(await screen.findByText("Chat history")).toBeInTheDocument();
+    unmount();
+
+    // For a security administrator the panel is absent rather than empty: an
+    // empty history reads as broken instead of as the boundary working.
+    renderWithRole(["SECURITY_ADMIN"]);
+    await screen.findByRole("link", { name: /Security Center/i });
+    expect(screen.queryByText("Chat history")).not.toBeInTheDocument();
+  });
+
+  it("labels every role, and never leaves one unnamed", async () => {
     for (const role of [
       "ENGINEER",
       "ANALYST",
@@ -127,7 +171,7 @@ describe("the sidebar", () => {
       "SECURITY_ADMIN",
     ] as const) {
       const { unmount } = renderWithRole([role]);
-      expect(await screen.findByText("Dashboard")).toBeInTheDocument();
+      expect(await screen.findByText("Settings")).toBeInTheDocument();
       // No role may end up labelled "No role assigned", which is what a
       // missing case in `roleLabel` would produce.
       expect(screen.queryByText("No role assigned")).not.toBeInTheDocument();

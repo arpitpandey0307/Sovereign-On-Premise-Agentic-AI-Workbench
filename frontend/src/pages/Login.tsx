@@ -1,23 +1,61 @@
 import { useState, type FormEvent } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Input } from "@/components/ui/Input";
+import {
+  homeFor,
+  workspaceById,
+  workspaceIntent,
+  workspaceRole,
+} from "@/lib/access";
 
+/**
+ * Sign in.
+ *
+ * Reached from the workspace chooser, which passes the workspace someone said
+ * they work in. That claim is settled here and nowhere earlier: the credentials
+ * come back with a role, and the role either admits them to that workspace or
+ * it does not. A refusal goes back to the chooser with the reason, rather than
+ * dropping them somewhere they did not ask for with no explanation.
+ */
 export function Login() {
   const { signIn, user, loading, endedReason, clearEndedReason } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [params] = useSearchParams();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The query parameter is the live intent; the stored one survives a reload
+  // of this page.
+  const wanted = workspaceById(params.get("workspace") ?? workspaceIntent.get());
+
+  // A session that already exists -- restored on load, or established by the
+  // submit below, which sets it before that handler's own navigate runs. This
+  // has to make the same workspace decision, or arriving here with a live
+  // session would silently drop the workspace that was asked for.
   if (!loading && user) {
-    const to =
-      (location.state as { from?: string } | null)?.from ?? "/workspaces";
-    return <Navigate to={to} replace />;
+    const from = (location.state as { from?: string } | null)?.from;
+    if (from) return <Navigate to={from} replace />;
+
+    const role = workspaceRole(user.roles);
+    if (!wanted) return <Navigate to={homeFor(role)} replace />;
+    return (
+      <Navigate
+        to={wanted.roles.includes(role) ? wanted.home : `/workspaces?denied=${wanted.id}`}
+        replace
+      />
+    );
   }
 
   async function submit(event: FormEvent) {
@@ -26,8 +64,22 @@ export function Login() {
     setError(null);
     clearEndedReason();
     try {
-      await signIn(email.trim(), password);
-      navigate("/workspaces", { replace: true });
+      const identity = await signIn(email.trim(), password);
+      const role = workspaceRole(identity.roles);
+      workspaceIntent.clear();
+
+      // No workspace was asked for: the role decides where to land.
+      if (!wanted) {
+        navigate(homeFor(role), { replace: true });
+        return;
+      }
+
+      navigate(
+        wanted.roles.includes(role)
+          ? wanted.home
+          : `/workspaces?denied=${wanted.id}`,
+        { replace: true },
+      );
     } catch (caught) {
       // Deliberately not saying which half was wrong. The backend already
       // answers identically for an unknown account and a bad password, and
@@ -59,6 +111,19 @@ export function Login() {
           <div className="word">SOVEREIGN&nbsp;AI</div>
           <div className="tag">Private Industrial Intelligence</div>
         </div>
+
+        {wanted && (
+          <p
+            className="text-[12px]"
+            style={{ color: "var(--text-mute)", marginBottom: "14px" }}
+          >
+            Signing in to{" "}
+            <span className="font-semibold" style={{ color: "var(--text)" }}>
+              {wanted.name}
+            </span>
+            . Your role decides whether you are admitted.
+          </p>
+        )}
 
         {endedReason && (
           <div className="login-error" role="status">

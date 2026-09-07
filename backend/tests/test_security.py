@@ -534,6 +534,31 @@ def test_a_user_can_read_their_own_permissions(client, auth_headers):
     assert "HIGHLY_CONFIDENTIAL" not in body["readable_classifications"]
 
 
+def test_every_role_can_read_its_own_permissions(client, make_user):
+    """Including the roles that hold nothing else.
+
+    The frontend fetches this on every sign-in to build the navigation, so a
+    role refused here cannot sign in at all. It sat behind ``task:read`` --
+    which ``SECURITY_ADMIN`` does not hold -- and that locked the entire
+    security-administrator role out of the product.
+
+    Nothing here is privileged: it tells callers what they already have.
+    """
+    for role in ("ENGINEER", "ANALYST", "MANAGER", "ADMIN", "SECURITY_ADMIN"):
+        user, password = make_user([role])
+        token = client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": password},
+        ).json()["access_token"]
+
+        response = client.get(
+            "/api/v1/security/permissions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200, role
+        assert response.json()["roles"] == [role]
+
+
 def test_a_receipt_is_readable_by_the_task_owner(client, auth_headers):
     conversation = client.post(
         "/api/v1/conversations", headers=auth_headers, json={"title": "t"}

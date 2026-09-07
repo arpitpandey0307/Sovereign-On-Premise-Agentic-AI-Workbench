@@ -22,7 +22,8 @@ import {
   type FormEvent,
 } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, Paperclip, Plus, X } from "lucide-react";
+import { Loader2, Mic, MicOff, Paperclip, Plus, X } from "lucide-react";
+import { isSupported as dictationSupported, startDictation, type Dictation } from "@/lib/dictation";
 import { api, describeError } from "@/lib/api";
 import {
   useCreateConversation,
@@ -39,20 +40,34 @@ import {
   type TaskExecution,
 } from "@/lib/pipeline";
 import { streamTaskEvents, type AgentEvent } from "@/lib/sse";
-import type { Task } from "@/lib/types";
+import type { Page, Task } from "@/lib/types";
 import { ReasoningTimeline } from "@/components/workbench/ReasoningTimeline";
 import { Citations, Outputs } from "@/components/workbench/Sources";
 import { ConfidenceRow } from "@/components/workbench/ConfidenceRow";
 import { ModelRoutingCard } from "@/components/workbench/ModelRoutingCard";
 import { CodeExecution } from "@/components/workbench/CodeExecution";
 
-/** The classification a person tags an upload with, before it is ingested. */
-const CLASSIFICATIONS = [
-  "PUBLIC",
-  "INTERNAL",
-  "CONFIDENTIAL",
-  "HIGHLY_CONFIDENTIAL",
-] as const;
+/**
+ * What the attach panel accepts.
+ *
+ * Mirrors the backend's own allow-list, so a file it would refuse is refused
+ * by the file picker instead of after an upload. Images and scanned PDFs are
+ * the interesting case: those are the ones OCR and the vision model read.
+ */
+const ACCEPTED_FILE_TYPES = [
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".tif",
+  ".tiff",
+  ".docx",
+  ".xlsx",
+  ".pptx",
+  ".csv",
+  ".txt",
+  ".json",
+].join(",");
 
 const SUGGESTIONS = [
   "Review this inspection report against the maintenance SOP and prepare an approval note.",
@@ -76,14 +91,13 @@ type Turn = UserTurn | AssistantTurn;
 export function Workbench() {
   const [params, setParams] = useSearchParams();
   const attachTaskId = params.get("task");
+  const openConversationId = params.get("conversation");
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [attached, setAttached] = useState<AttachedFile[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
-  const [classification, setClassification] =
-    useState<(typeof CLASSIFICATIONS)[number]>("INTERNAL");
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
 
@@ -95,6 +109,25 @@ export function Workbench() {
   const createConversation = useCreateConversation();
   const createTask = useCreateTask();
   const uploadFile = useUploadFile();
+
+  // Dictation. The text it produces lands in the box and is sent by hand --
+  // speech never starts a task on its own, so what the model is given is
+  // always something a person read first.
+  const dictation = useRef<Dictation | null>(null);
+  const [listening, setListening] = useState(false);
+  const [heard, setHeard] = useState("");
+  // Resolved once: the button must not appear and then vanish.
+  const [canDictate] = useState(() => dictationSupported());
+
+  const stopDictation = useCallback(() => {
+    dictation.current?.stop();
+    dictation.current = null;
+    setListening(false);
+    setHeard("");
+  }, []);
+
+  // A run left listening when the screen goes away keeps the microphone open.
+  useEffect(() => stopDictation, [stopDictation]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -204,6 +237,76 @@ export function Workbench() {
     [onEvent, settle],
   );
 
+  /**
+   * Reopen a past conversation from the history list.
+   *
+   * Rebuilt from the tasks it produced rather than from the event stream: the
+   * stream's backlog is held in memory and is gone after a restart, while the
+   * tasks and their execution records are kept. Each run contributes the
+   * question that was asked and the answer's citations, which is what someone
+   * scrolling back is looking for.
+   */
+  useEffect(() => {
+    if (!openConversationId) return;
+    let cancelled = false;
+
+    (async () => {
+      setTurns([]);
+      setConversationId(openConversationId);
+      try {
+        // No server-side filter by conversation, so a recent page is fetched
+        // and narrowed here.
+        const page = await api.get<Page<Task>>("/api/v1/tasks?limit=100");
+        const mine = page.items
+          .filter((task) => task.conversation_id === openConversationId)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+        const rebuilt = await Promise.all(
+          mine.map(async (task) => {
+            const execution = await api
+              .get<TaskExecution>(`/api/v1/tasks/${task.task_id}/execution`)
+              .catch(() => null);
+            let pipeline = emptyPipeline();
+            if (execution) pipeline = mergeExecution(pipeline, execution);
+            return { task, pipeline };
+          }),
+        );
+        if (cancelled) return;
+
+        const restored: Turn[] = [];
+        for (const { task, pipeline } of rebuilt) {
+          restored.push({ kind: "user", text: task.request_text });
+          restored.push({
+            kind: "assistant",
+            taskId: task.task_id,
+            pipeline: {
+              ...pipeline,
+              outcome:
+                task.status === "completed"
+                  ? "completed"
+                  : task.status === "failed"
+                    ? "failed"
+                    : task.status === "cancelled"
+                      ? "cancelled"
+                      : pipeline.outcome,
+              error: task.error_message ?? pipeline.error,
+            },
+            running: false,
+            reconnecting: false,
+            streamError: null,
+          });
+        }
+        setTurns(restored);
+      } catch (caught) {
+        if (!cancelled) setComposerError(describeError(caught).detail);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [openConversationId]);
+
   // Attach to a task passed in the URL (Dashboard hands off this way, and it is
   // how a finished run is reopened).
   useEffect(() => {
@@ -298,18 +401,61 @@ export function Workbench() {
     void send(text);
   }
 
+  function toggleDictation() {
+    if (listening) {
+      stopDictation();
+      return;
+    }
+
+    setComposerError(null);
+    // What was already typed is kept; dictation appends to it.
+    const existing = draft.trim();
+    const started = startDictation({
+      onTranscript: (final, interim) => {
+        setHeard(interim);
+        const spoken = [final, interim].filter(Boolean).join(" ");
+        setDraft([existing, spoken].filter(Boolean).join(" "));
+      },
+      onError: (message) => {
+        if (message) setComposerError(message);
+        stopDictation();
+      },
+      onEnd: () => {
+        dictation.current = null;
+        setListening(false);
+        setHeard("");
+      },
+    });
+
+    if (!started) {
+      setComposerError(
+        "Dictation could not start. Type your request instead.",
+      );
+      return;
+    }
+    dictation.current = started;
+    setListening(true);
+  }
+
   async function onPickFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const files = [...(event.target.files ?? [])];
     event.target.value = "";
-    if (!file) return;
-    try {
-      const record = await uploadFile.mutateAsync(file);
-      setAttached((current) => [
-        ...current,
-        { id: record.id, filename: record.filename },
-      ]);
-    } catch (caught) {
-      setComposerError(describeError(caught).detail);
+    if (files.length === 0) return;
+    setComposerError(null);
+    // One at a time, and a failure stops the run rather than being swallowed:
+    // silently attaching three of four files would send a task off with less
+    // evidence than the operator believes it has.
+    for (const file of files) {
+      try {
+        const record = await uploadFile.mutateAsync(file);
+        setAttached((current) => [
+          ...current,
+          { id: record.id, filename: record.filename },
+        ]);
+      } catch (caught) {
+        setComposerError(`${file.name}: ${describeError(caught).detail}`);
+        return;
+      }
     }
   }
 
@@ -380,6 +526,30 @@ export function Workbench() {
                 }
               }}
             />
+            {canDictate && (
+              <button
+                type="button"
+                className="icon-sq"
+                onClick={toggleDictation}
+                aria-label={listening ? "Stop dictating" : "Dictate your request"}
+                aria-pressed={listening}
+                title={listening ? "Stop dictating" : "Dictate your request"}
+                style={
+                  listening
+                    ? {
+                        color: "var(--danger-text)",
+                        borderColor: "var(--danger-line)",
+                      }
+                    : undefined
+                }
+              >
+                {listening ? (
+                  <MicOff className="size-4 animate-pulse" aria-hidden />
+                ) : (
+                  <Mic className="size-4" aria-hidden />
+                )}
+              </button>
+            )}
             <button
               type="submit"
               className="send"
@@ -393,25 +563,6 @@ export function Workbench() {
           {attachOpen && (
             <div className="attach-pop">
               <div className="row">
-                <span className="field-label" style={{ margin: 0 }}>
-                  Classification
-                </span>
-                <select
-                  className="select"
-                  style={{ maxWidth: "260px" }}
-                  value={classification}
-                  onChange={(event) =>
-                    setClassification(
-                      event.target.value as (typeof CLASSIFICATIONS)[number],
-                    )
-                  }
-                >
-                  {CLASSIFICATIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </select>
                 <button
                   type="button"
                   className="btn btn-sm"
@@ -425,6 +576,8 @@ export function Workbench() {
                   ref={fileInputRef}
                   type="file"
                   hidden
+                  multiple
+                  accept={ACCEPTED_FILE_TYPES}
                   onChange={onPickFile}
                 />
               </div>
@@ -451,10 +604,26 @@ export function Workbench() {
                 )}
               </div>
               <span className="hint">
-                Attached files are ingested, then passed to the task as
-                input_file_ids.
+                Images, PDFs, drawings, spreadsheets and documents. Scanned
+                pages go through OCR and, where there is no text layer, are
+                described by the local vision model. The classification is read
+                from each document&rsquo;s own markings during ingestion &mdash;
+                it is not chosen here.
               </span>
             </div>
+          )}
+
+          {listening && (
+            <p
+              className="hint"
+              role="status"
+              aria-live="polite"
+              style={{ marginTop: "8px", color: "var(--danger-text)" }}
+            >
+              Listening&hellip; {heard ? `“${heard}”` : "speak your request"} —
+              the words go into the box, and nothing is sent until you press
+              send.
+            </p>
           )}
 
           {composerError && (

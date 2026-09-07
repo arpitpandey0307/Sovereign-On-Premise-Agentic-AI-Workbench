@@ -75,6 +75,7 @@ function renderLanding({ signedIn = false }: { signedIn?: boolean } = {}) {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<p>Sign-in screen</p>} />
             <Route path="/dashboard" element={<p>Dashboard screen</p>} />
+            <Route path="/workspaces" element={<p>Choose workspace screen</p>} />
           </Routes>
         </AuthProvider>
       </MemoryRouter>
@@ -120,19 +121,26 @@ describe("the landing page", () => {
     ).toBeInTheDocument();
   });
 
-  it("sends a signed-out visitor to sign in", async () => {
+  // "Enter Workbench" goes to the workspace chooser, with or without a
+  // session. Someone arriving from the marketing page is saying what they came
+  // to do, not who they are -- so the product asks which part of the plant
+  // they work in, and settles the identity claim at sign-in straight after.
+  it("sends a signed-out visitor to choose their workspace", async () => {
     renderLanding();
 
     await userEvent.click(
       await screen.findByRole("button", { name: /Enter Secure Workbench/i }),
     );
 
-    expect(await screen.findByText("Sign-in screen")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Choose workspace screen"),
+    ).toBeInTheDocument();
   });
 
-  it("sends a visitor with a live session straight to the workbench", async () => {
-    // Bouncing someone who is already signed in back to a login form reads as
-    // the session not having been real.
+  it("sends a visitor with a live session to the same place", async () => {
+    // One answer, not a guess made while the stored token is still being
+    // checked -- and never a login form, which would read as the session not
+    // having been real.
     renderLanding({ signedIn: true });
     await screen.findByText(/Private intelligence/i);
 
@@ -145,7 +153,10 @@ describe("the landing page", () => {
       screen.getAllByRole("button", { name: /Enter Workbench/i })[0],
     );
 
-    expect(await screen.findByText("Dashboard screen")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Choose workspace screen"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Sign-in screen")).not.toBeInTheDocument();
   });
 
   it("lands the metric counters on their stated values", async () => {

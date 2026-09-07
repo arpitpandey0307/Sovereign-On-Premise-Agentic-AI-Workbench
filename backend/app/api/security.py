@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.audit.events import EVENT_TYPES
 from app.audit.ledger import audit_ledger
-from app.core.dependencies import DbSession, require
+from app.core.dependencies import CurrentUser, DbSession, require
 from app.core.errors import NotFoundError
 from app.db.models import User
 from app.db.repositories.tasks import TaskRepository
@@ -152,13 +152,20 @@ def audit_log(
 
 
 @router.get("/api/v1/security/permissions")
-def my_permissions(user: TaskUser) -> dict:
+def my_permissions(user: CurrentUser) -> dict:
     """What the calling user may do. Readable by anyone, about themselves only.
 
     Deliberately not parameterised by user id: this answers "what can I do",
     not "what can they do". The second question is the admin console's, and
     routing it through here would make an ordinary role able to map the
     permission model.
+
+    Authentication is the only gate, and it has to be. This was behind
+    ``task:read``, which ``SECURITY_ADMIN`` does not hold -- and since the
+    frontend fetches it on every sign-in to build the navigation, that role
+    could not sign in at all. Nothing here is privileged: it tells callers what
+    they already have, and a permission list they were about to discover one
+    refusal at a time is not a secret worth keeping from them.
     """
     return acl.describe(user.role_names)
 

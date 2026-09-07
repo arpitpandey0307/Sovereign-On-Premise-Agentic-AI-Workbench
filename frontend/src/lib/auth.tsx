@@ -38,7 +38,14 @@ type AuthState = {
   expiresAt: Date | null;
   /** True inside the warning window, so the shell can say so quietly. */
   expiringSoon: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  /**
+   * Sign in, and hand back the identity that came with the credentials.
+   *
+   * Returned rather than read from state afterwards: the caller decides where
+   * to send someone based on their role, and React state is not readable in
+   * the same tick as the call that set it.
+   */
+  signIn: (email: string, password: string) => Promise<User>;
   signOut: () => Promise<void>;
   clearEndedReason: () => void;
 };
@@ -72,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, [clear]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<User> => {
     // Both are needed before the shell renders: the user for identity, the
     // permissions for navigation. Fetching them together avoids a first paint
     // where the sidebar has the wrong items and then corrects itself.
@@ -82,6 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
     setUser(me);
     setPermissions(perms);
+    // The permissions response is authoritative on roles; `me` is the
+    // fallback for a deployment where the two ever disagree.
+    return perms.roles?.length ? { ...me, roles: perms.roles } : me;
   }, []);
 
   // Resume a stored session, if it is still good.
@@ -132,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setEndedReason(null);
       setExpiringSoon(false);
       setExpiresAt(tokenStore.expiresAt());
-      await load();
+      return load();
     },
     [load],
   );

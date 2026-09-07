@@ -1,25 +1,27 @@
 /**
  * The two real actions on the landing page.
  *
- * "Enter Workbench" is the only piece of genuine logic here, and it is worth
- * getting right: someone with a live session who is sent back to a login form
- * concludes the session was not real. While the stored session is still being
- * checked the button stays enabled and routes to the app -- `RequireAuth`
- * makes the same decision a moment later with a better answer, and blocking
- * the primary call to action on a network round trip is worse than a redirect
- * the user never notices.
+ * "Enter Workbench" goes to the workspace chooser, signed in or not. Someone
+ * arriving from the marketing page is telling you what they came to do, not
+ * who they are -- so the product asks which part of the plant they work in
+ * first, and settles the identity claim at sign-in immediately afterwards.
+ * A visitor with a live session lands on the same screen and simply sees the
+ * workspaces they already hold.
  */
 
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useAuth } from "@/lib/auth";
 
-/** Where "Enter Workbench" should go, given the session. */
+/**
+ * Where "Enter Workbench" goes.
+ *
+ * The chooser, always. It is the one screen that works the same whether or not
+ * there is a session, which is what lets this be a single answer rather than a
+ * guess made while the stored token is still being checked.
+ */
 export function useWorkbenchDestination(): string {
-  const { user, loading } = useAuth();
-  if (user) return "/dashboard";
-  return loading ? "/dashboard" : "/login";
+  return "/workspaces";
 }
 
 export function EnterWorkbenchButton({

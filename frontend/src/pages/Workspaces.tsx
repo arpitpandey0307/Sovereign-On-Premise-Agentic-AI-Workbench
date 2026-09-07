@@ -1,145 +1,80 @@
-import { useEffect, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ClipboardList,
   Cpu,
   HardHat,
   Lock,
   ShieldCheck,
-  Wrench,
+  ShieldX,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { roleLabel, useAuth, useRole } from "@/lib/auth";
 import { Button } from "@/components/ui/Button";
-import type { Role } from "@/lib/types";
+import {
+  ROLE_LABEL,
+  WORKSPACES,
+  workspaceById,
+  workspaceIntent,
+  workspaceRole,
+  workspacesFor,
+  type Workspace,
+} from "@/lib/access";
 
 /**
- * The workspace selector.
+ * The workspace chooser — the first screen after the landing page.
  *
- * A shortcut into the right area of the product -- explicitly *not* a way to
- * grant yourself permissions. Workspaces the role cannot enter are shown
- * locked with the reason, rather than hidden: a selector that appeared to let
- * someone pick "Security / Admin" would suggest privilege is self-service,
- * which is the opposite of what this product argues.
+ * It runs *before* sign-in, which is the point: someone says which part of the
+ * plant they work in, and the credentials they then present either bear that
+ * out or do not. Choosing is a statement of intent, never a grant. Nothing here
+ * is a permission and nothing here is checked here; the role that comes back
+ * from the server decides, and the server re-checks every request afterwards.
+ *
+ * So the cards are not disabled before sign-in. Disabling them would leak the
+ * shape of the organisation to an anonymous visitor, and would also be a lie:
+ * this page genuinely does not know who is looking at it yet.
+ *
+ * After sign-in the same screen has a different job — it shows what this person
+ * actually holds, and it is where a refused choice lands with the reason.
  */
 
-/**
- * The remembered workspace, stored by id rather than by path.
- *
- * The id is resolved against the current role on every visit, so a preference
- * saved while someone held a role they have since lost cannot route them into
- * a screen they may no longer use. localStorage rather than sessionStorage
- * because this is a convenience with no security value, and it is meant to
- * survive the sign-outs a shared workstation produces all day.
- */
-const SKIP_KEY = "sovereign.workspace.skip";
-
-function readRemembered(): string | null {
-  try {
-    return localStorage.getItem(SKIP_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function forgetRemembered(): void {
-  try {
-    localStorage.removeItem(SKIP_KEY);
-  } catch {
-    /* nothing to forget */
-  }
-}
-
-type Workspace = {
-  id: string;
-  name: string;
-  Icon: typeof HardHat;
-  blurb: string[];
-  roles: Role[];
-  to: string;
+const ICONS: Record<string, typeof HardHat> = {
+  engineering: HardHat,
+  management: ClipboardList,
+  security: ShieldCheck,
+  administration: Cpu,
 };
-
-const WORKSPACES: Workspace[] = [
-  {
-    id: "engineering",
-    name: "Engineering",
-    Icon: HardHat,
-    blurb: ["Technical documentation", "P&IDs", "Inspection", "Engineering analysis"],
-    roles: ["ENGINEER", "ANALYST", "MANAGER", "ADMIN"],
-    to: "/workbench",
-  },
-  {
-    id: "operations",
-    name: "Operations",
-    Icon: Wrench,
-    blurb: ["Maintenance", "Operational reports", "Asset information"],
-    roles: ["ENGINEER", "ANALYST", "MANAGER", "ADMIN"],
-    to: "/workbench",
-  },
-  {
-    id: "management",
-    name: "Management",
-    Icon: ClipboardList,
-    blurb: ["Reports", "Analytics", "Presentations", "Decision support"],
-    roles: ["MANAGER", "ADMIN"],
-    to: "/dashboard",
-  },
-  {
-    id: "security",
-    name: "Security / Admin",
-    Icon: Cpu,
-    blurb: ["Models", "Policies", "Audit", "Network", "System controls"],
-    roles: ["ADMIN", "SECURITY_ADMIN"],
-    to: "/security",
-  },
-];
 
 export function Workspaces() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
-  const { roles, clearance } = useRole();
+  const { roles } = useRole();
   const [params] = useSearchParams();
-  // Ticked already if a preference is stored, so arriving here deliberately
-  // shows the current state and unticking it is how it gets cleared.
-  const [remember, setRemember] = useState(() => readRemembered() !== null);
 
-  // `?choose=1` is how someone gets back to this screen after remembering a
-  // choice. Without it the preference would be a one-way door.
-  const forced = params.get("choose") === "1";
-  const remembered = WORKSPACES.find((w) => w.id === readRemembered());
-  const stillPermitted =
-    remembered?.roles.some((role) => roles.includes(role)) ?? false;
+  const denied = workspaceById(params.get("denied"));
 
-  // A remembered workspace the role can no longer enter is dropped rather
-  // than silently ignored, so the screen does not keep offering to forget a
-  // preference that is already inert.
-  //
-  // Guarded on `loading`, because permissions arrive asynchronously and an
-  // unguarded check runs once against an empty role list -- which looks
-  // exactly like "no longer permitted" and would delete a valid preference
-  // every time the page was opened.
-  useEffect(() => {
-    if (!loading && remembered && !stillPermitted) forgetRemembered();
-  }, [loading, remembered, stillPermitted]);
-
+  // Nothing is decided until the stored session has been checked, or the page
+  // paints its anonymous half and then rearranges itself.
   if (loading) return null;
 
-  if (!forced && remembered && stillPermitted) {
-    return <Navigate to={remembered.to} replace />;
+  const signedIn = Boolean(user);
+  const role = workspaceRole(roles);
+  const permitted = signedIn ? workspacesFor(role) : WORKSPACES;
+
+  // A signed-in person with exactly one workspace and no refusal to explain is
+  // not making a choice; they are reading a page with one button on it.
+  if (signedIn && !denied && permitted.length === 1 && params.get("choose") !== "1") {
+    return <Navigate to={permitted[0].home} replace />;
   }
 
-  const enter = (workspace: Workspace) => {
-    if (remember) {
-      try {
-        localStorage.setItem(SKIP_KEY, workspace.id);
-      } catch {
-        /* the preference simply will not persist */
-      }
-    } else {
-      // Unticking it on a later visit is how the preference is cleared.
-      forgetRemembered();
+  const choose = (workspace: Workspace) => {
+    workspaceIntent.set(workspace.id);
+    if (!signedIn) {
+      // Sign in *to* this workspace. The credentials settle whether it holds.
+      navigate(`/login?workspace=${workspace.id}`);
+      return;
     }
-    navigate(workspace.to, { replace: true });
+    workspaceIntent.clear();
+    navigate(workspace.home, { replace: true });
   };
 
   return (
@@ -156,55 +91,72 @@ export function Workspaces() {
           Choose your workspace
         </h1>
         <p className="mt-1.5 text-sm text-secondary">
-          Your available workspaces depend on your organizational permissions.
+          {signedIn
+            ? "These are the workspaces your role admits you to."
+            : "Pick where you work. You will sign in next, and your credentials decide whether you are admitted."}
         </p>
 
-        <div className="mt-4 inline-flex items-center gap-2 rounded-[var(--radius)] border border-subtle bg-panel px-3 py-1.5">
-          <ShieldCheck className="size-3.5 text-accent" aria-hidden />
-          <span className="text-xs text-secondary">
-            Signed in as{" "}
-            <span className="font-medium text-primary">{user?.name}</span> &mdash;{" "}
-            {roleLabel(roles)}
-          </span>
-          <span className="mono rounded bg-elevated px-1.5 py-0.5 text-[10px] text-tertiary">
-            {clearance}
-          </span>
-        </div>
+        {denied && (
+          <div
+            role="alert"
+            className="mt-5 flex items-start gap-2.5 rounded-[var(--radius)] px-3.5 py-2.5"
+            style={{
+              background: "var(--danger-bg)",
+              border: "1px solid var(--danger-line)",
+              color: "var(--danger-text)",
+            }}
+          >
+            <ShieldX className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span className="text-[12.5px]">
+              Your account is not admitted to{" "}
+              <span className="font-semibold">{denied.name}</span>. You are
+              signed in as {roleLabel(roles)} — {ROLE_LABEL[role]}. What you can
+              enter is below.
+            </span>
+          </div>
+        )}
+
+        {signedIn && (
+          <div className="mt-4 inline-flex items-center gap-2 rounded-[var(--radius)] border border-subtle bg-panel px-3 py-1.5">
+            <ShieldCheck className="size-3.5 text-accent" aria-hidden />
+            <span className="text-xs text-secondary">
+              Signed in as{" "}
+              <span className="font-medium text-primary">{user?.name}</span>{" "}
+              &mdash; {roleLabel(roles)}
+            </span>
+          </div>
+        )}
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
-          {WORKSPACES.map((workspace) => {
-            const permitted = workspace.roles.some((role) => roles.includes(role));
-            return (
-              <WorkspaceCard
-                key={workspace.id}
-                workspace={workspace}
-                permitted={permitted}
-                onEnter={() => enter(workspace)}
-              />
-            );
-          })}
+          {permitted.map((workspace) => (
+            <WorkspaceCard
+              key={workspace.id}
+              workspace={workspace}
+              onChoose={() => choose(workspace)}
+            />
+          ))}
         </div>
 
-        <label className="mt-5 flex w-fit cursor-pointer items-center gap-2 text-xs text-secondary">
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(event) => setRemember(event.target.checked)}
-            className="size-3.5 accent-[var(--color-accent)]"
-          />
-          Remember my choice and go straight there next time
-        </label>
-
         <p className="mt-8 text-[11px] text-tertiary">
-          Selecting a workspace changes what this application shows you. It
-          does not change what you are permitted to access &mdash; permissions are
-          assigned by your administrator and enforced by the server.
+          Choosing a workspace decides what this application shows you. It does
+          not decide what you are permitted to reach &mdash; permissions are
+          assigned by your administrator and enforced by the server on every
+          request.
         </p>
 
-        <div className="mt-6">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")}>
-            Skip to dashboard
+        <div className="mt-6 flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+            Back
           </Button>
+          {!signedIn && (
+            <Link
+              to="/login"
+              className="text-[12px]"
+              style={{ color: "var(--text-mute)" }}
+            >
+              Or sign in and let your role decide
+            </Link>
+          )}
         </div>
       </div>
     </div>
@@ -213,67 +165,40 @@ export function Workspaces() {
 
 function WorkspaceCard({
   workspace,
-  permitted,
-  onEnter,
+  onChoose,
 }: {
   workspace: Workspace;
-  permitted: boolean;
-  onEnter: () => void;
+  onChoose: () => void;
 }) {
-  const { Icon, name, blurb } = workspace;
+  const Icon = ICONS[workspace.id] ?? HardHat;
 
   return (
     <button
       type="button"
-      onClick={permitted ? onEnter : undefined}
-      disabled={!permitted}
-      aria-label={
-        permitted ? `Enter ${name} workspace` : `${name} — not available to your role`
-      }
+      onClick={onChoose}
+      aria-label={`Enter the ${workspace.name} workspace`}
       className={cn(
         "group rounded-[var(--radius)] border p-4 text-left transition-colors",
-        permitted
-          ? "border-subtle bg-panel hover:border-accent/50 hover:bg-elevated"
-          : "cursor-not-allowed border-subtle/60 bg-panel/50",
+        "border-subtle bg-panel hover:border-accent/50 hover:bg-elevated",
       )}
     >
-      <div className="flex items-start justify-between">
-        <div
-          className={cn(
-            "grid size-8 place-items-center rounded",
-            permitted ? "bg-accent-soft" : "bg-inactive-soft",
-          )}
-        >
-          <Icon
-            className={cn("size-4", permitted ? "text-accent" : "text-inactive")}
-            aria-hidden
-          />
-        </div>
-        {!permitted && <Lock className="size-3.5 text-tertiary" aria-hidden />}
+      <div className="grid size-8 place-items-center rounded bg-accent-soft">
+        <Icon className="size-4 text-accent" aria-hidden />
       </div>
 
-      <p
-        className={cn(
-          "mt-3 text-sm font-medium",
-          permitted ? "text-primary" : "text-tertiary",
-        )}
-      >
-        {name}
-      </p>
+      <p className="mt-3 text-sm font-medium text-primary">{workspace.name}</p>
 
       <ul className="mt-1.5 space-y-0.5">
-        {blurb.map((line) => (
+        {workspace.blurb.map((line) => (
           <li key={line} className="text-[11px] text-tertiary">
             {line}
           </li>
         ))}
       </ul>
 
-      {!permitted && (
-        <p className="mt-3 border-t border-subtle pt-2 text-[10px] text-tertiary">
-          Requires {workspace.roles.map((role) => role.replace(/_/g, " ")).join(" or ")}
-        </p>
-      )}
+      <p className="mt-3 border-t border-subtle pt-2 text-[10px] text-tertiary">
+        For {workspace.roles.map((role) => ROLE_LABEL[role]).join(", ")}
+      </p>
     </button>
   );
 }

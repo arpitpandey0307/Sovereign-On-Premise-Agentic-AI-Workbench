@@ -15,38 +15,36 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { roleLabel, useAuth, useRole } from "@/lib/auth";
-import type { Role } from "@/lib/types";
+import { canOpen, workspaceRole } from "@/lib/access";
+import { ChatHistory } from "@/components/shell/ChatHistory";
 
+/**
+ * The navigation.
+ *
+ * What is shown comes from the one access table in `lib/access`, the same one
+ * the router enforces. Two lists that had to be kept in agreement is how a
+ * sidebar ends up hiding a link the router still serves.
+ */
 type Item = {
   to: string;
   label: string;
   Icon: typeof LayoutDashboard;
-  /** Permission required to reach it, checked against the policy engine. */
-  needs?: [resource: string, action: string];
-  /** A stricter role gate, for items no single permission tuple captures. */
-  roles?: Role[];
 };
 
 const PRIMARY: Item[] = [
   { to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { to: "/workbench", label: "AI Workbench", Icon: FlaskConical, needs: ["task", "create"] },
-  { to: "/coding", label: "Coding Workspace", Icon: Terminal, needs: ["task", "create"] },
-  { to: "/documents", label: "Documents", Icon: FileText, needs: ["document", "read"] },
-  { to: "/knowledge", label: "Knowledge Base", Icon: Library, needs: ["document", "search"] },
-  { to: "/tasks", label: "Tasks", Icon: ListChecks, needs: ["task", "read"] },
-  {
-    to: "/approvals",
-    label: "Approval Requests",
-    Icon: ClipboardCheck,
-    needs: ["task", "read"],
-    roles: ["MANAGER", "ADMIN", "SECURITY_ADMIN"],
-  },
-  { to: "/artifacts", label: "Artifacts", Icon: Boxes, needs: ["artifact", "download"] },
-  { to: "/models", label: "Models", Icon: Boxes, needs: ["model", "read"] },
+  { to: "/workbench", label: "AI Workbench", Icon: FlaskConical },
+  { to: "/coding", label: "Coding Workspace", Icon: Terminal },
+  { to: "/documents", label: "My Documents", Icon: FileText },
+  { to: "/knowledge", label: "Knowledge Base", Icon: Library },
+  { to: "/tasks", label: "Tasks", Icon: ListChecks },
+  { to: "/approvals", label: "Approval Requests", Icon: ClipboardCheck },
+  { to: "/artifacts", label: "Artifacts", Icon: Boxes },
+  { to: "/models", label: "Models", Icon: Boxes },
 ];
 
 const SECONDARY: Item[] = [
-  { to: "/security", label: "Security Center", Icon: Shield, needs: ["security", "read"] },
+  { to: "/security", label: "Security Center", Icon: Shield },
   { to: "/settings", label: "Settings", Icon: Settings },
 ];
 
@@ -58,15 +56,13 @@ export function Sidebar({
   onToggle: () => void;
 }) {
   const { user } = useAuth();
-  const { can, hasRole } = useRole();
+  const { roles } = useRole();
+  const role = workspaceRole(roles);
 
-  // Items the role cannot reach are hidden -- with one exception below.
+  // Items this workspace role cannot reach are hidden -- with one exception
+  // below. The same predicate the router uses, so the two cannot drift.
   const visible = (items: Item[]) =>
-    items.filter(
-      (item) =>
-        (!item.needs || can(item.needs[0], item.needs[1])) &&
-        (!item.roles || hasRole(...item.roles)),
-    );
+    items.filter((item) => canOpen(role, item.to));
 
   return (
     <aside className={cn("sidebar", collapsed && "collapsed")}>
@@ -95,7 +91,7 @@ export function Sidebar({
 
         {!collapsed && <div className="nav-group-label">Oversight</div>}
         {SECONDARY.map((item) => {
-          const permitted = !item.needs || can(item.needs[0], item.needs[1]);
+          const permitted = canOpen(role, item.to);
           // Security Center stays visible but locked for roles that cannot
           // enter it. Knowing the system *has* oversight is part of what the
           // product is arguing, so hiding it entirely would understate it.
@@ -108,7 +104,14 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="sidebar-scroll" />
+      {/* Conversations belong to roles that hold the workbench. For the rest
+          the panel is absent, not empty -- an empty history reads as broken
+          rather than as the boundary doing its job. */}
+      {canOpen(role, "/workbench") ? (
+        <ChatHistory collapsed={collapsed} />
+      ) : (
+        <div className="sidebar-scroll" />
+      )}
 
       <NavLink
         to="/profile"

@@ -1,6 +1,8 @@
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { Suspense, lazy, type ReactNode } from "react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useRole } from "@/lib/auth";
+import { canOpen, homeFor, workspaceRole } from "@/lib/access";
+import { NoAccess } from "@/components/states/NoAccess";
 import { LoadingState } from "@/components/states/LoadingState";
 import { Login } from "@/pages/Login";
 import { Signup } from "@/pages/Signup";
@@ -90,6 +92,30 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * The boundary the sidebar only *describes*.
+ *
+ * Hiding a link is presentation; without this, typing `/security` as an
+ * engineer still rendered the Security Center and left it to the API to refuse
+ * each request piecemeal. The screen is refused as a whole instead, and says
+ * which workspace the person actually holds.
+ *
+ * This is not the security boundary — the server is, and it re-checks every
+ * request. It is the interface agreeing with the server instead of contradicting
+ * it.
+ */
+function RequireAccess() {
+  const { roles } = useRole();
+  const location = useLocation();
+  const role = workspaceRole(roles);
+
+  if (!canOpen(role, location.pathname)) {
+    return <NoAccess role={role} pathname={location.pathname} home={homeFor(role)} />;
+  }
+
+  return <Outlet />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -107,14 +133,15 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
 
+      {/* Deliberately outside RequireAuth: choosing where you work comes
+          before proving who you are. The choice grants nothing -- sign-in
+          settles it. */}
       <Route
         path="/workspaces"
         element={
-          <RequireAuth>
-            <Suspense fallback={<RouteFallback />}>
-              <Workspaces />
-            </Suspense>
-          </RequireAuth>
+          <Suspense fallback={<RouteFallback />}>
+            <Workspaces />
+          </Suspense>
         }
       />
 
@@ -130,23 +157,27 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/workbench" element={<Workbench />} />
-        <Route path="/coding" element={<Coding />} />
-        <Route path="/tasks" element={<Tasks />} />
-        <Route path="/tasks/:id" element={<TaskTrace />} />
-        <Route path="/approvals" element={<Approvals />} />
-        <Route path="/documents" element={<Documents />} />
-        <Route path="/documents/:id" element={<DocumentViewer />} />
-        <Route path="/knowledge" element={<Knowledge />} />
-        <Route path="/artifacts" element={<Artifacts />} />
-        <Route path="/models" element={<Models />} />
-        <Route path="/security" element={<Security />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/profile" element={<Profile />} />
+        <Route element={<RequireAccess />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/workbench" element={<Workbench />} />
+          <Route path="/coding" element={<Coding />} />
+          <Route path="/tasks" element={<Tasks />} />
+          <Route path="/tasks/:id" element={<TaskTrace />} />
+          <Route path="/approvals" element={<Approvals />} />
+          <Route path="/documents" element={<Documents />} />
+          <Route path="/documents/:id" element={<DocumentViewer />} />
+          <Route path="/knowledge" element={<Knowledge />} />
+          <Route path="/artifacts" element={<Artifacts />} />
+          <Route path="/models" element={<Models />} />
+          <Route path="/security" element={<Security />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/profile" element={<Profile />} />
+        </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* An unknown path lands on the chooser, not on a dashboard a security
+          administrator has no data for. */}
+      <Route path="*" element={<Navigate to="/workspaces" replace />} />
     </Routes>
   );
 }
