@@ -18,8 +18,9 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { TaskExecution } from "@/lib/pipeline";
 import type {
-  Artifact,
+  ArtifactRecord,
   AuditPage,
   Conversation,
   DocumentPage,
@@ -270,24 +271,30 @@ export function useEquipment(tag: string, options?: Options<EquipmentGraph>) {
 
 // --- artifacts -----------------------------------------------------------------
 
+/**
+ * A task's artifacts.
+ *
+ * The endpoint answers with a bare array, not an envelope — reading
+ * `.artifacts` off the response yields nothing, which is what left the
+ * Artifacts library permanently empty against a real backend.
+ */
 export function useTaskArtifacts(
   taskId: string,
-  options?: Options<{ artifacts: Artifact[] }>,
+  options?: Options<ArtifactRecord[]>,
 ) {
   return useQuery({
     queryKey: keys.taskArtifacts(taskId),
-    queryFn: () =>
-      api.get<{ artifacts: Artifact[] }>(`/api/v1/tasks/${taskId}/artifacts`),
+    queryFn: () => api.get<ArtifactRecord[]>(`/api/v1/tasks/${taskId}/artifacts`),
     enabled: Boolean(taskId),
     ...LIVE,
     ...options,
   });
 }
 
-export function useArtifact(id: string, options?: Options<Artifact>) {
+export function useArtifact(id: string, options?: Options<ArtifactRecord>) {
   return useQuery({
     queryKey: keys.artifact(id),
-    queryFn: () => api.get<Artifact>(`/api/v1/artifacts/${id}`),
+    queryFn: () => api.get<ArtifactRecord>(`/api/v1/artifacts/${id}`),
     enabled: Boolean(id),
     ...options,
   });
@@ -321,10 +328,16 @@ export function useTask(id: string, options?: Options<Task>) {
   });
 }
 
-export function useTaskExecution(id: string, options?: Options<unknown>) {
+/**
+ * The orchestrator's record of a run.
+ *
+ * Outlives the event stream's in-memory buffer, so a trace opened after a
+ * restart still has the plan, its rationale and the validator's checks.
+ */
+export function useTaskExecution(id: string, options?: Options<TaskExecution>) {
   return useQuery({
     queryKey: keys.taskExecution(id),
-    queryFn: () => api.get(`/api/v1/tasks/${id}/execution`),
+    queryFn: () => api.get<TaskExecution>(`/api/v1/tasks/${id}/execution`),
     enabled: Boolean(id),
     ...LIVE,
     ...options,

@@ -223,10 +223,21 @@ async def stream_events(
     The content of the stream belongs to Part 04. This endpoint only
     authenticates, replays anything emitted before the browser attached, and
     forwards until the task reaches a terminal event or the client leaves.
+
+    The database session is released before the stream starts. A request-scoped
+    session lives until the response completes, and an SSE response does not
+    complete while the client is attached -- so holding one would tie up a
+    pooled connection for the whole life of every open stream. A handful of
+    viewers, or streams a browser left behind, then exhaust the pool and the
+    entire API stops answering with ``QueuePool limit ... reached``. Nothing
+    after the authorisation check needs the database.
     """
     task = _owned(db, task_id, user)
-    queue, backlog = event_bus.subscribe(task_id)
     already_finished = task.status in TERMINAL_STATUSES
+    final_status = task.status
+    db.close()
+
+    queue, backlog = event_bus.subscribe(task_id)
 
     async def publisher() -> AsyncIterator[str]:
         try:
@@ -235,7 +246,7 @@ async def stream_events(
 
             if already_finished and not backlog:
                 yield _format_sse(
-                    f"task_{task.status}", {"task_id": str(task_id), "replayed": True}
+                    f"task_{final_status}", {"task_id": str(task_id), "replayed": True}
                 )
                 return
 

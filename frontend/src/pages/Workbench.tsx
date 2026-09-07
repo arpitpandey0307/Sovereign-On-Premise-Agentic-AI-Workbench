@@ -34,7 +34,9 @@ import {
   applyEvent,
   emptyPipeline,
   isSettled,
+  mergeExecution,
   type PipelineState,
+  type TaskExecution,
 } from "@/lib/pipeline";
 import { streamTaskEvents, type AgentEvent } from "@/lib/sse";
 import type { Task } from "@/lib/types";
@@ -119,14 +121,23 @@ export function Workbench() {
 
   const settle = useCallback(
     async (taskId: string) => {
-      // The stream usually carries the final answer, but not always. When it
-      // does not, the task record and the orchestrator trace are authoritative.
+      // The stream announces *counts* -- "2 results", "1 finding" -- not the
+      // passages themselves or the validator's checks. Those are on the
+      // execution trace, so a finished run is completed from there; without
+      // this the turn renders with no citations at all.
       try {
-        const task = await api.get<Task>(`/api/v1/tasks/${taskId}`);
+        const [task, execution] = await Promise.all([
+          api.get<Task>(`/api/v1/tasks/${taskId}`),
+          api
+            .get<TaskExecution>(`/api/v1/tasks/${taskId}/execution`)
+            .catch(() => null),
+        ]);
         setTurns((current) =>
           current.map((turn) => {
             if (turn.kind !== "assistant" || turn.taskId !== taskId) return turn;
-            let pipeline = turn.pipeline;
+            let pipeline = execution
+              ? mergeExecution(turn.pipeline, execution)
+              : turn.pipeline;
             if (!pipeline.answer && task.error_message) {
               pipeline = { ...pipeline, error: task.error_message };
             }

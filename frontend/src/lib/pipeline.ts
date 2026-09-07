@@ -393,9 +393,27 @@ export function applyEvent(state: PipelineState, event: AgentEvent): PipelineSta
   }
 
   if (event.event === "validation_completed") {
-    const verdict = str(data.result || data.status || data.verdict).toLowerCase();
-    next.validation =
-      verdict.includes("pass") ? "passed" : verdict.includes("fail") ? "failed" : verdict.includes("partial") ? "partial" : next.validation;
+    // The backend states the verdict as a boolean `passed` plus a `failures`
+    // list; older/other emitters use a word. Both are read, the boolean first,
+    // because reading only the word left the validation number blank on every
+    // successful run.
+    const failures = Array.isArray(data.failures) ? data.failures.length : null;
+    if (typeof data.passed === "boolean") {
+      next.validation = data.passed
+        ? failures
+          ? "partial"
+          : "passed"
+        : "failed";
+    } else {
+      const verdict = str(data.result || data.status || data.verdict).toLowerCase();
+      next.validation = verdict.includes("pass")
+        ? "passed"
+        : verdict.includes("fail")
+          ? "failed"
+          : verdict.includes("partial")
+            ? "partial"
+            : next.validation;
+    }
     next.confidence = pct(data.confidence) ?? next.confidence;
     next.evidenceSufficiency =
       pct(data.evidence_sufficiency ?? data.evidence_score) ?? next.evidenceSufficiency;
@@ -414,6 +432,74 @@ export function applyEvent(state: PipelineState, event: AgentEvent): PipelineSta
     next.outcome = "failed";
   } else if (event.event === "task_cancelled") {
     next.outcome = "cancelled";
+  }
+
+  return next;
+}
+
+/**
+ * What `GET /api/v1/tasks/{id}/execution` returns: the orchestrator's own
+ * record of the run.
+ *
+ * Unlike the event stream, this survives a restart -- the in-memory event
+ * buffer does not. It is therefore the only place a trace opened later can get
+ * the plan, its rationale, the passages retrieved and the validator's checks.
+ */
+export type TaskExecution = {
+  task_id?: string;
+  status?: string;
+  request?: string;
+  /** Each planned step with the reason it is in the plan. */
+  plan?: Array<{ step: string; why?: string }>;
+  /** Each step as it actually ran, with whatever the orchestrator recorded. */
+  steps?: Array<{ step: string; ok?: boolean; at?: string; [key: string]: unknown }>;
+  models?: string[];
+  tools?: string[];
+  sources?: Array<Record<string, unknown>>;
+  artifacts?: string[];
+  validation?: {
+    passed?: boolean;
+    checks?: Array<{ check?: string; ok?: boolean; detail?: string }>;
+    failures?: unknown[];
+  };
+  errors?: unknown[];
+};
+
+/**
+ * Fill in what the event stream does not carry.
+ *
+ * `retrieval_completed` announces only how many sources were found, and
+ * `reasoning_completed` only how many findings — the passages themselves and
+ * the validator's verdict live on the execution trace. Without this a finished
+ * run renders with no citations at all, which is the single most important
+ * thing the Workbench has to show.
+ *
+ * Anything the stream did supply wins: this only fills gaps.
+ */
+export function mergeExecution(
+  state: PipelineState,
+  execution: TaskExecution,
+): PipelineState {
+  const next = { ...state };
+
+  if (next.citations.length === 0 && Array.isArray(execution.sources)) {
+    next.citations = readCitations({ sources: execution.sources });
+  }
+
+  if (next.validation === null && execution.validation) {
+    const { passed, checks } = execution.validation;
+    const failed = (checks ?? []).filter((check) => check?.ok === false).length;
+    if (typeof passed === "boolean") {
+      next.validation = passed ? (failed ? "partial" : "passed") : "failed";
+    }
+  }
+
+  if (!next.routing && execution.models?.length) {
+    next.routing = {
+      model: execution.models[0],
+      rationale: "Recorded by the orchestrator for this run.",
+      rejected: [],
+    };
   }
 
   return next;

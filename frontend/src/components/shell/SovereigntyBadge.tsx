@@ -49,7 +49,16 @@ export function SovereigntyBadge() {
   const { data, error } = useQuery({
     queryKey: ["sovereignty"],
     queryFn: () => api.get<Sovereignty>("/api/v1/security/sovereignty"),
-    refetchInterval: 30_000,
+    // Polling stops once the answer is a denial. The backend records every
+    // refusal in the audit ledger, so a badge that kept asking twice a minute
+    // would fill that ledger with denials it caused itself -- and the Security
+    // Center shows denials in red, as evidence the controls are live. One
+    // refused attempt per session is honest; a hundred is noise that buries
+    // the real ones.
+    refetchInterval: (query) =>
+      query.state.error instanceof ApiError && query.state.error.status === 403
+        ? false
+        : 30_000,
     retry: (count, err) =>
       // Retrying a permission denial just produces more denials.
       !(err instanceof ApiError && err.status === 403) && count < 2,

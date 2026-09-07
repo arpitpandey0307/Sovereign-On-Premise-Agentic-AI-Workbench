@@ -193,27 +193,62 @@ export function Dashboard() {
   );
 }
 
-/** Read the first present numeric field, for the loosely-typed /internal bags. */
+/**
+ * Read the first present numeric field, for the loosely-typed /internal bags.
+ *
+ * A key may be a dotted path: the knowledge status nests its counts under
+ * `corpus`, and looking only at the top level found nothing, so the two
+ * knowledge figures never appeared.
+ */
 function pluckNumber(
   bag: Record<string, unknown> | undefined,
   keys: string[],
 ): number | null {
   if (!bag) return null;
   for (const key of keys) {
-    const value = bag[key];
+    let value: unknown = bag;
+    for (const segment of key.split(".")) {
+      if (value === null || typeof value !== "object") {
+        value = undefined;
+        break;
+      }
+      value = (value as Record<string, unknown>)[segment];
+    }
     const n = typeof value === "string" ? Number(value) : value;
     if (typeof n === "number" && Number.isFinite(n)) return n;
   }
   return null;
 }
 
+/** How many models the runtime actually has resident, if it says. */
+function residentModels(bag: Record<string, unknown> | undefined): number | null {
+  if (!bag) return null;
+  const resident = bag.resident_models;
+  if (Array.isArray(resident)) return resident.length;
+  return pluckNumber(bag, ["loaded", "models_loaded", "ready"]);
+}
+
 function SystemStatusPanel() {
   const { isOversight } = useRole();
-  const { data, isLoading, isError, error, refetch } = useSystemStatus();
-  // Only oversight roles may read the internal endpoints; for everyone else
-  // these stay disabled rather than firing a guaranteed 403.
+  // `/api/v1/system/status` needs `system:read`, which only the oversight roles
+  // hold. Asking for it as an engineer is a request that can only ever be
+  // refused, and the panel then renders a permission error on the busiest
+  // screen in the product. Say what the screen is instead of failing at it.
+  const { data, isLoading, isError, error, refetch } = useSystemStatus({
+    enabled: isOversight,
+    retry: false,
+  });
   const modelHealth = useModelHealth({ enabled: isOversight, retry: false });
   const knowledge = useKnowledgeStatus({ enabled: isOversight, retry: false });
+
+  if (!isOversight) {
+    return (
+      <p className="hint" style={{ marginTop: "10px" }}>
+        System status is reported to administrators and security
+        administrators. Your work is unaffected by what it shows.
+      </p>
+    );
+  }
 
   if (isError) return <ErrorState error={error} onRetry={() => refetch()} />;
   if (isLoading || !data) {
@@ -225,17 +260,19 @@ function SystemStatusPanel() {
     .filter(([, state]) => state !== "live")
     .map(([name]) => name);
 
-  const loadedModels = pluckNumber(modelHealth.data, [
-    "loaded",
-    "models_loaded",
-    "ready",
-  ]);
+  const loadedModels = residentModels(modelHealth.data);
+  // The counts live under `corpus` on the real response.
   const indexedDocs = pluckNumber(knowledge.data, [
+    "corpus.documents",
     "documents",
     "document_count",
     "docs",
   ]);
-  const chunks = pluckNumber(knowledge.data, ["chunks", "chunk_count"]);
+  const chunks = pluckNumber(knowledge.data, [
+    "corpus.chunks",
+    "chunks",
+    "chunk_count",
+  ]);
 
   return (
     <div className="mt-3 stat-grid">

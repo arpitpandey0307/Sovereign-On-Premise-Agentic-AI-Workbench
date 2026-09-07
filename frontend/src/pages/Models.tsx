@@ -229,56 +229,141 @@ function RoutingPlayground() {
 }
 
 function RoutingResult({ decision }: { decision: RoutingDecision }) {
+  const req = decision.requirements;
+  const hw = decision.hardware;
+  const ranked = decision.ranked ?? [];
+  const rejected = decision.rejected ?? [];
+
+  // The router reports a rejection's stage on the rejection itself, so the
+  // stages are recovered by grouping rather than read from a `stages` array.
+  const byStage = new Map<string, typeof rejected>();
+  for (const entry of rejected) {
+    const list = byStage.get(entry.stage) ?? [];
+    list.push(entry);
+    byStage.set(entry.stage, list);
+  }
+
   return (
     <div className="mt-4">
-      {decision.selected && (
+      {decision.selected ? (
         <p className="text-[13px]">
           Selected:{" "}
           <span className="mono" style={{ color: "var(--accent-bright)" }}>
-            {decision.selected}
+            {decision.selected.model_id}
           </span>
+          {decision.selected.type ? (
+            <span className="mono" style={{ color: "var(--text-mute)" }}>
+              {" "}
+              ({decision.selected.type})
+            </span>
+          ) : null}
+        </p>
+      ) : (
+        <p className="text-[13px]" style={{ color: "var(--danger-text)" }}>
+          No model satisfies this request. Every candidate was ruled out below.
         </p>
       )}
 
+      {decision.rationale && (
+        <p className="mt-1 text-[12.5px]" style={{ color: "var(--text-dim)" }}>
+          {decision.rationale}
+        </p>
+      )}
+
+      {req && (
+        <div
+          className="mt-3 rounded-[var(--r-md)] border p-3"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div className="field-label" style={{ margin: 0 }}>
+            What was asked for
+          </div>
+          <p className="mono mt-1 text-[11px]" style={{ color: "var(--text-mute)" }}>
+            task {req.task_type ?? "—"} · type {req.model_type ?? "any"} ·{" "}
+            {req.classification ?? "—"} · ~{req.estimated_context_tokens ?? 0} tokens
+            {req.needs_vision ? " · vision" : ""}
+            {req.needs_structured_output ? " · structured output" : ""}
+          </p>
+          {(req.required_capabilities?.length ?? 0) > 0 && (
+            <p className="mono mt-1 text-[11px]" style={{ color: "var(--text-mute)" }}>
+              required: {req.required_capabilities!.join(", ")}
+            </p>
+          )}
+          {hw?.present && (
+            <p className="mono mt-1 text-[11px]" style={{ color: "var(--text-faint)" }}>
+              {hw.gpu} · {hw.free_vram_gb?.toFixed(1)} GB free of{" "}
+              {hw.total_vram_gb?.toFixed(1)} GB · pressure{" "}
+              {Math.round((hw.pressure ?? 0) * 100)}%
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Rejections, grouped by the stage that ruled each candidate out. */}
       <div className="mt-3 space-y-3">
-        {(decision.stages ?? []).map((stage) => (
-          <div key={stage.stage} className="rounded-[var(--r-md)] border p-3" style={{ borderColor: "var(--border)" }}>
+        {[...byStage.entries()].map(([stage, entries]) => (
+          <div
+            key={stage}
+            className="rounded-[var(--r-md)] border p-3"
+            style={{ borderColor: "var(--border)" }}
+          >
             <div className="field-label" style={{ margin: 0 }}>
-              {stage.stage}
+              Ruled out at: {stage}
             </div>
-            {stage.considered && stage.considered.length > 0 && (
-              <p className="mono mt-1 text-[11px]" style={{ color: "var(--text-mute)" }}>
-                considered: {stage.considered.join(", ")}
-              </p>
-            )}
-            {stage.rejected && stage.rejected.length > 0 && (
-              <ul className="mt-1 space-y-0.5">
-                {stage.rejected.map((r) => (
-                  <li key={r.model} className="text-[12px]" style={{ color: "var(--danger-text)" }}>
-                    <span className="mono">{r.model}</span> — {r.reason}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {stage.survivors && stage.survivors.length > 0 && (
-              <ul className="mt-1 space-y-0.5">
-                {stage.survivors.map((s) => (
-                  <li key={s.model} className="text-[12px]" style={{ color: "var(--text-dim)" }}>
-                    <span className="mono" style={{ color: "var(--ok-text)" }}>
-                      {s.model}
-                    </span>
-                    {s.score != null ? ` · score ${s.score}` : ""}
-                    {s.breakdown
-                      ? ` (${Object.entries(s.breakdown)
-                          .map(([k, v]) => `${k} ${v}`)
-                          .join(", ")})`
-                      : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="mt-1 space-y-0.5">
+              {entries.map((entry) => (
+                <li
+                  key={entry.model_id}
+                  className="text-[12px]"
+                  style={{ color: "var(--danger-text)" }}
+                >
+                  <span className="mono">{entry.model_id}</span> — {entry.reason}
+                </li>
+              ))}
+            </ul>
           </div>
         ))}
+
+        {ranked.length > 0 && (
+          <div
+            className="rounded-[var(--r-md)] border p-3"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div className="field-label" style={{ margin: 0 }}>
+              Scored{decision.considered ? ` · ${decision.considered} considered` : ""}
+            </div>
+            <ul className="mt-1 space-y-1.5">
+              {ranked.map((entry) => (
+                <li key={entry.model_id} className="text-[12px]">
+                  <span
+                    className="mono"
+                    style={{
+                      color:
+                        entry.model_id === decision.selected?.model_id
+                          ? "var(--ok-text)"
+                          : "var(--text-dim)",
+                    }}
+                  >
+                    {entry.model_id}
+                  </span>
+                  {entry.total != null ? ` · ${entry.total.toFixed(4)}` : ""}
+                  {(entry.factors?.length ?? 0) > 0 && (
+                    <span className="mono" style={{ color: "var(--text-faint)" }}>
+                      {" "}
+                      (
+                      {entry
+                        .factors!.map(
+                          (f) => `${f.name} ${(f.contribution ?? f.value ?? 0).toFixed(3)}`,
+                        )
+                        .join(", ")}
+                      )
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {decision.fallback_chain && decision.fallback_chain.length > 0 && (

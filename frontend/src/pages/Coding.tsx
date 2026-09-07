@@ -115,7 +115,19 @@ function SandboxPanel() {
   }
 
   const s: SandboxStatus = data ?? {};
-  const netBlocked = !data || String(s.network_access ?? "BLOCKED").toUpperCase() === "BLOCKED";
+  const confinement = s.confinement ?? {};
+
+  // The runner reports these; they are not this screen's claims to make. When
+  // the role cannot read them, the panel says so rather than substituting a
+  // plausible-looking default, because the whole point of the panel is that
+  // the values are measured.
+  const network = confinement.network;
+  const netBlocked = network === undefined || /none|blocked/i.test(network);
+
+  // `available: false` means the runner did not answer at all. Code cannot run,
+  // and that is the first thing an operator needs to know -- it must not be
+  // buried under a green confinement grid.
+  const unavailable = data !== undefined && s.available === false;
 
   return (
     <div className="card mt-3">
@@ -127,7 +139,23 @@ function SandboxPanel() {
             values available to administrators
           </span>
         )}
+        {!forbidden && data && (
+          <span
+            className={"pill" + (unavailable ? " danger" : " ok")}
+            style={{ marginLeft: "auto" }}
+          >
+            {s.runner ?? "runner"} {unavailable ? "unreachable" : "ready"}
+          </span>
+        )}
       </div>
+
+      {unavailable && (
+        <p className="risk-callout danger" style={{ marginTop: "10px" }}>
+          The {s.runner ?? "sandbox"} runner is not reachable, so no code can be
+          executed on this deployment.
+          {s.detail ? ` ${s.detail}` : ""}
+        </p>
+      )}
 
       {isLoading ? (
         <p className="loading-note">Reading the runner…</p>
@@ -135,36 +163,39 @@ function SandboxPanel() {
         <div className="mt-3 stat-grid">
           <Fact
             Icon={Ban}
-            label="Internet access"
-            value={netBlocked ? "BLOCKED" : String(s.network_access)}
+            label="Network interface"
+            value={network ? network.toUpperCase() : "NONE"}
             tone={netBlocked ? "var(--ok-text)" : "var(--danger-text)"}
           />
           <Fact
             Icon={HardDriveDownload}
-            label="Filesystem"
-            value={String(s.filesystem ?? "ISOLATED")}
+            label="Root filesystem"
+            value={confinement.root_filesystem ?? "read-only"}
             tone="var(--ok-text)"
           />
           <Fact
             Icon={Timer}
-            label="Execution limit"
-            value={
-              s.max_execution_seconds
-                ? `${s.max_execution_seconds}s max`
-                : "30s max"
-            }
+            label="Workspace"
+            value={confinement.workspace ?? "discarded after the run"}
             tone="var(--text)"
           />
           <Fact
             Icon={ShieldCheck}
-            label="CPU / memory"
+            label="Privileges"
             value={
-              [s.cpu_limit, s.memory_limit].filter(Boolean).join(" · ") ||
-              "Limited"
+              [confinement.capabilities, confinement.user]
+                .filter(Boolean)
+                .join(" · ") || "all dropped"
             }
             tone="var(--text)"
           />
         </div>
+      )}
+
+      {!forbidden && s.image && (
+        <p className="hint" style={{ marginTop: "10px" }}>
+          Image <span className="mono">{s.image}</span>.
+        </p>
       )}
 
       {forbidden && (

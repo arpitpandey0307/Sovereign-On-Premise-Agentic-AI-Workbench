@@ -121,36 +121,80 @@ export type AuditPage = Page<AuditEvent> & { known_event_types: string[] };
  * The whole policy in force, from `GET /api/v1/security/status`. Read-only on
  * this deployment — policy lives in configuration, not a store. Permissive.
  */
+export type PolicyRule = {
+  local_models_only?: boolean;
+  max_tool_risk?: string;
+  human_approval_required?: boolean;
+  restricted_artifact_storage?: boolean;
+  notes?: string;
+};
+
+/**
+ * The whole policy in force, from `GET /api/v1/security/status`.
+ *
+ * The backend keys `policy` and `roles` by name rather than sending arrays, so
+ * both are objects here — reading them as arrays is what an earlier version of
+ * this file did, and `.map` on an object throws during render.
+ */
 export type SecurityStatus = {
-  classification_levels?: Array<{
-    level: Classification;
-    max_tool_risk?: string;
-    requires_approval?: boolean;
-    local_models_only?: boolean;
-    artifact_storage?: string;
-  }>;
-  roles?: Array<{
-    role: Role;
-    clearance: Classification | "none";
-    readable_classifications: Classification[];
-  }>;
+  classification_levels?: Classification[];
+  policy?: Partial<Record<Classification, PolicyRule>>;
+  roles?: Partial<
+    Record<Role, { clearance: Classification | "none"; readable_classifications: Classification[] }>
+  >;
+  sovereignty?: Sovereignty;
   [key: string]: unknown;
 };
 
 /**
  * What `POST /api/v1/models/route` returns — the router's reasoning without
- * running anything: what each of the four stages considered and rejected, the
- * score breakdown for survivors, and the fallback chain. Permissive.
+ * running anything.
+ *
+ * `selected` is the chosen model *object*, not its id; `ranked` carries the
+ * score breakdown for the survivors and `rejected` names the stage that ruled
+ * each candidate out. There is no `stages` array — the stage is a field on
+ * each rejection.
  */
+export type RoutingFactor = {
+  name: string;
+  value?: number;
+  weight?: number;
+  contribution?: number;
+  why?: string;
+};
+
 export type RoutingDecision = {
-  selected?: string;
-  task_type?: string;
-  stages?: Array<{
-    stage: string;
-    considered?: string[];
-    rejected?: Array<{ model: string; reason: string }>;
-    survivors?: Array<{ model: string; score?: number; breakdown?: Record<string, number> }>;
-  }>;
+  selected?: {
+    model_id: string;
+    type?: string;
+    capabilities?: string[];
+    context_length?: number;
+    vram_required_gb?: number;
+    status?: string;
+  } | null;
+  rationale?: string;
+  requirements?: {
+    task_type?: string;
+    model_type?: string | null;
+    required_capabilities?: string[];
+    preferred_capabilities?: string[];
+    classification?: Classification;
+    estimated_context_tokens?: number;
+    needs_vision?: boolean;
+    needs_structured_output?: boolean;
+    exclude_models?: string[];
+  };
+  hardware?: {
+    gpu?: string;
+    present?: boolean;
+    total_vram_gb?: number;
+    free_vram_gb?: number;
+    usable_vram_gb?: number;
+    pressure?: number;
+  };
+  considered?: number;
+  ranked?: Array<{ model_id: string; total?: number; factors?: RoutingFactor[] }>;
+  rejected?: Array<{ model_id: string; stage: string; reason: string }>;
   fallback_chain?: string[];
   [key: string]: unknown;
 };
@@ -325,28 +369,51 @@ export type ToolDescriptor = {
  * the shape.
  */
 export type SandboxStatus = {
-  network_access?: "BLOCKED" | "ALLOWED" | string;
-  filesystem?: "ISOLATED" | string;
-  cpu_limit?: string;
-  memory_limit?: string;
-  max_execution_seconds?: number;
+  /** Which runner the backend is configured to use, e.g. "docker". */
+  runner?: string;
+  /** Whether that runner actually answered. False means no code can run. */
+  available?: boolean;
+  /** Why, when it is not available. */
+  detail?: string;
   image?: string;
+  confinement?: {
+    network?: string;
+    root_filesystem?: string;
+    workspace?: string;
+    capabilities?: string;
+    user?: string;
+  };
   [key: string]: unknown;
 };
 
 export type TaskReceipt = {
   task_id?: string;
+  user_id?: string;
   status?: string;
+  request?: string;
   started_at?: string;
   finished_at?: string;
-  duration_ms?: number;
-  inputs?: Array<{ kind: string; name: string; id?: string }>;
+  events_recorded?: number;
   models_used?: string[];
   tools_used?: string[];
-  sources?: Array<{ document_name: string; page?: number | null }>;
-  artifacts?: Array<{ id: string; filename: string; mime_type?: string; size_bytes?: number }>;
-  security_events?: Array<{ kind: string; detail: string; at?: string }>;
+  /** Tools the policy engine refused. The ledger's proof that it said no. */
+  tools_denied?: string[];
+  /** Document names, not objects. */
+  documents_consulted?: string[];
+  input_files?: string[];
+  /** Artifact ids, not objects — the filenames live on the artifact records. */
+  artifacts?: string[];
+  approvals?: Array<Record<string, unknown>>;
   external_calls?: number;
   sovereignty?: string;
   [key: string]: unknown;
+};
+
+/** One artifact, exactly as `GET /api/v1/tasks/{id}/artifacts` returns it. */
+export type ArtifactRecord = {
+  artifact_id: string;
+  task_id: string;
+  type: string;
+  validation_status: "passed" | "failed" | "pending" | string;
+  download_url: string;
 };

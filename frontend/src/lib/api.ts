@@ -200,6 +200,10 @@ export const api = {
    *
    * Downloads cannot be a plain anchor: the href would carry no Authorization
    * header and the server would refuse it.
+   *
+   * `filename` is a fallback. The server names the file in `Content-Disposition`
+   * and that name is preferred, because the artifact endpoints identify a file
+   * by id and the caller often has no better name than the id itself.
    */
   async download(path: string, filename: string): Promise<void> {
     const token = tokenStore.get();
@@ -221,13 +225,36 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = filename;
+    anchor.download =
+      filenameFromDisposition(response.headers.get("content-disposition")) ?? filename;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
   },
 };
+
+/**
+ * The filename the server chose, from `Content-Disposition`.
+ *
+ * Handles both the plain `filename="x"` form and RFC 5987's `filename*=`, which
+ * is what a name with non-ASCII characters arrives as.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+
+  const extended = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (extended?.[1]) {
+    try {
+      return decodeURIComponent(extended[1].trim().replace(/^"|"$/g, "")) || null;
+    } catch {
+      /* a malformed value is not worth failing the download over */
+    }
+  }
+
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || null;
+}
 
 function formatWait(seconds: number): string {
   const whole = Math.ceil(seconds);

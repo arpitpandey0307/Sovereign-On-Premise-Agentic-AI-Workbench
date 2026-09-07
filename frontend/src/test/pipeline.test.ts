@@ -14,6 +14,7 @@ import {
   applyEvent,
   emptyPipeline,
   isSettled,
+  mergeExecution,
   reducePipeline,
   STAGES,
 } from "@/lib/pipeline";
@@ -182,6 +183,101 @@ describe("the pipeline reducer", () => {
     expect(sandboxDown.sandboxFailed).toBe(true);
     expect(sandboxDown.sandboxDetail).toMatch(/failed to start/);
     expect(sandboxDown.outcome).toBe("failed");
+  });
+
+  // What the backend actually sends. Captured from a real run: the verdict is
+  // a boolean, not a word, and reading only the word left every successful run
+  // with a blank validation figure.
+  it("reads the validation verdict from the boolean the backend sends", () => {
+    const passed = applyEvent(
+      emptyPipeline(),
+      ev("validation_completed", { artifact_id: "a1", passed: true, failures: [] }),
+    );
+    expect(passed.validation).toBe("passed");
+
+    const failed = applyEvent(
+      emptyPipeline(),
+      ev("validation_completed", {
+        artifact_id: "a1",
+        passed: false,
+        failures: ["citations point at retrieved evidence"],
+      }),
+    );
+    expect(failed.validation).toBe("failed");
+  });
+
+  it("still reads a worded verdict, for an emitter that sends one", () => {
+    const state = applyEvent(emptyPipeline(), ev("validation_completed", { result: "passed" }));
+    expect(state.validation).toBe("passed");
+  });
+
+  // The stream announces counts, not content: `retrieval_completed` says how
+  // many sources were found and never what they were. Without folding the
+  // execution trace in, a finished run renders with no citations at all.
+  it("fills citations and the verdict from the execution trace", () => {
+    const streamed = reducePipeline([
+      ev("task_created"),
+      ev("retrieval_completed", { results: 2, documents: ["sop.txt"] }),
+      ev("reasoning_completed", { findings: 1, model_id: "reasoner-qwen3-8b-4bit" }),
+      ev("task_completed", { artifacts: ["a1"], sources: 2 }),
+    ]);
+    expect(streamed.citations).toHaveLength(0);
+    expect(streamed.validation).toBeNull();
+
+    const merged = mergeExecution(streamed, {
+      sources: [
+        {
+          document_id: "d1",
+          document_name: "sop.txt",
+          page: 1,
+          section: "4.2 Isolation",
+          text: "Close suction valve V-103 and apply a lock-out tag.",
+          score: 0.0164,
+        },
+      ],
+      validation: { passed: true, checks: [{ ok: true }], failures: [] },
+      models: ["reasoner-qwen3-8b-4bit"],
+    });
+
+    expect(merged.citations).toHaveLength(1);
+    expect(merged.citations[0].documentName).toBe("sop.txt");
+    expect(merged.citations[0].page).toBe(1);
+    expect(merged.citations[0].text).toContain("V-103");
+    expect(merged.validation).toBe("passed");
+    expect(merged.routing?.model).toBe("reasoner-qwen3-8b-4bit");
+  });
+
+  it("never lets the execution trace overwrite what the stream already said", () => {
+    const streamed = reducePipeline([
+      ev("retrieval_completed", {
+        sources: [{ document_name: "streamed.pdf", page: 7 }],
+      }),
+      ev("validation_completed", { passed: false, failures: ["x"] }),
+    ]);
+
+    const merged = mergeExecution(streamed, {
+      sources: [{ document_name: "trace.pdf", page: 1 }],
+      validation: { passed: true, checks: [], failures: [] },
+    });
+
+    expect(merged.citations[0].documentName).toBe("streamed.pdf");
+    expect(merged.validation).toBe("failed");
+  });
+
+  it("takes the artifact id and name from artifact_generated, as the backend sends it", () => {
+    const state = reducePipeline([
+      ev("artifact_generated", {
+        artifact_id: "393ac7f5-4425-456c-9f67-209fda8a980f",
+        filename: "approval_note_v1.docx",
+      }),
+      // The terminal event repeats the ids as bare strings; they must not
+      // become a second, nameless entry.
+      ev("task_completed", { artifacts: ["393ac7f5-4425-456c-9f67-209fda8a980f"], sources: 2 }),
+    ]);
+
+    expect(state.artifacts).toHaveLength(1);
+    expect(state.artifacts[0].id).toBe("393ac7f5-4425-456c-9f67-209fda8a980f");
+    expect(state.artifacts[0].filename).toBe("approval_note_v1.docx");
   });
 
   it("has nine stages, in the order the front timeline shows", () => {

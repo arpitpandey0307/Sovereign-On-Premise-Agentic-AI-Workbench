@@ -19,18 +19,12 @@ import {
   useReingest,
   useUploadFile,
 } from "@/lib/queries";
-import type { Classification, DocumentSummary } from "@/lib/types";
+import type { DocumentSummary } from "@/lib/types";
 import { ClassificationBadge, StatusPill } from "@/components/ui/StatusPill";
 import { Table, type Column } from "@/components/ui/Table";
 import { ErrorState } from "@/components/states/ErrorState";
 import { SecurityOversightNote } from "@/components/states/SecurityOversightNote";
 
-const CLASSIFICATIONS: Classification[] = [
-  "PUBLIC",
-  "INTERNAL",
-  "CONFIDENTIAL",
-  "HIGHLY_CONFIDENTIAL",
-];
 
 function IngestionPill({ doc }: { doc: DocumentSummary }) {
   if (doc.ingest_error) return <StatusPill tone="danger">Ingest failed</StatusPill>;
@@ -51,7 +45,6 @@ function IngestionPill({ doc }: { doc: DocumentSummary }) {
 export function Documents() {
   const navigate = useNavigate();
   const { isSecurityOnly } = useRole();
-  const [classification, setClassification] = useState<Classification>("INTERNAL");
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -108,7 +101,19 @@ export function Documents() {
     {
       key: "class",
       header: "Classification",
-      cell: (doc) => <ClassificationBadge level={doc.classification} />,
+      cell: (doc) => (
+        <span title={doc.classification_reason || undefined}>
+          <ClassificationBadge level={doc.classification} />
+          {doc.classification_reason ? (
+            <span
+              className="block text-[11px]"
+              style={{ color: "var(--text-faint)", maxWidth: "22ch" }}
+            >
+              {doc.classification_reason}
+            </span>
+          ) : null}
+        </span>
+      ),
     },
     { key: "status", header: "Ingestion", cell: (doc) => <IngestionPill doc={doc} /> },
     { key: "pages", header: "Pages", cell: (doc) => doc.page_count || "—", numeric: true },
@@ -171,23 +176,6 @@ export function Documents() {
 
       <div className="card" style={{ marginBottom: "18px" }}>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="field-label" style={{ margin: 0 }}>
-            Classification
-          </span>
-          <select
-            className="select"
-            style={{ maxWidth: "240px" }}
-            value={classification}
-            onChange={(event) =>
-              setClassification(event.target.value as Classification)
-            }
-          >
-            {CLASSIFICATIONS.map((value) => (
-              <option key={value} value={value}>
-                {value.replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
           <button
             type="button"
             className="btn btn-primary btn-sm"
@@ -202,6 +190,14 @@ export function Documents() {
             Upload document
           </button>
           <input ref={fileInput} type="file" hidden onChange={onPick} />
+          {/* The classification is not the uploader's to choose. The ingester
+              reads the document's own markings and says what it concluded, per
+              document, in the table below -- a dropdown here would let someone
+              mislabel a document and would be believed. */}
+          <span className="hint" style={{ margin: 0 }}>
+            Classification is read from the document's own markings during
+            ingestion, and the reason is recorded against each one.
+          </span>
         </div>
         {error && (
           <p className="error-note" style={{ marginTop: "10px" }}>

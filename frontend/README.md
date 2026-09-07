@@ -30,12 +30,29 @@ npm run typecheck
 npm run build
 ```
 
+### Against a running backend
+
+The unit tests mock `fetch`, which verifies the screens against the shapes this
+codebase *believes* the API returns — the one assumption that can be wrong. A
+second suite removes the mock, signs in for real and renders every screen
+against a live API:
+
+```bash
+# with the backend running on 127.0.0.1:8000
+LIVE_API=http://127.0.0.1:8000 npm test -- live-integration
+```
+
+It skips entirely without `LIVE_API`, so the ordinary suite still needs
+nothing running. `LIVE_EMAIL` and `LIVE_PASSWORD` override the demo account.
+
+The Playwright hero flow (`npm run test:e2e`) also needs a live backend, plus
+`E2E_EMAIL` / `E2E_PASSWORD` and `playwright install chromium`.
+
 ## What is here
 
-Part 01 of five: the project, the design tokens, the API client, auth and the
-role context, and the application shell. Screens for Parts 02–05 are routed
-and render a placeholder naming the part they arrive in — an unfinished screen
-and an empty one look identical otherwise.
+All five parts: the design system and shell, the landing page, the workbench
+and task views, documents / knowledge / artifacts, and the security, model and
+settings screens.
 
 ```
 src/

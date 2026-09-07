@@ -99,29 +99,43 @@ describe("the Model Center", () => {
     ).toBeInTheDocument();
   });
 
+  // The router reports each rejection with the stage that made it, rather than
+  // an array of stages. This fixture is the shape a running backend returns.
   it("renders routing rejections with their stage and reason", async () => {
     mount({
-      selected: "refinery-7b",
-      stages: [
+      selected: { model_id: "refinery-7b", type: "reasoning", status: "ready" },
+      rationale: "Selected refinery-7b -- best fit for a reasoning task.",
+      requirements: {
+        task_type: "reasoning",
+        model_type: null,
+        classification: "INTERNAL",
+        estimated_context_tokens: 2048,
+        needs_vision: false,
+        needs_structured_output: false,
+      },
+      considered: 3,
+      ranked: [
         {
-          stage: "capability",
-          considered: ["refinery-7b", "qwen3-8b", "vlm-13b"],
-          rejected: [{ model: "vlm-13b", reason: "vision not requested" }],
-        },
-        {
-          stage: "hardware fit",
-          rejected: [{ model: "qwen3-8b", reason: "not pulled on this host" }],
-          survivors: [{ model: "refinery-7b", score: 0.82 }],
+          model_id: "refinery-7b",
+          total: 0.82,
+          factors: [{ name: "task_accuracy", value: 0.9, weight: 0.5, contribution: 0.45 }],
         },
       ],
+      rejected: [
+        { model_id: "vlm-13b", stage: "capability", reason: "vision not requested" },
+        { model_id: "qwen3-8b", stage: "hardware fit", reason: "not pulled on this host" },
+      ],
+      fallback_chain: ["refinery-7b", "qwen3-1_7b"],
     });
 
     await userEvent.click(await screen.findByRole("button", { name: /preview/i }));
 
     expect(await screen.findByText(/vision not requested/i)).toBeInTheDocument();
     expect(screen.getByText(/not pulled on this host/i)).toBeInTheDocument();
-    expect(screen.getByText("hardware fit")).toBeInTheDocument();
+    expect(screen.getByText(/Ruled out at: hardware fit/i)).toBeInTheDocument();
     expect(screen.getByText(/Selected:/i)).toBeInTheDocument();
+    // The chosen model is named, not rendered as "[object Object]".
+    expect(screen.getAllByText("refinery-7b").length).toBeGreaterThan(0);
   });
 
   it("the add-model form generates a catalogue entry and posts nowhere", async () => {

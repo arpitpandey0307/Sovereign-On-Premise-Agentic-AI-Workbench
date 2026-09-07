@@ -176,15 +176,27 @@ describe("the policy panel", () => {
     tokenStore.clear();
   });
 
+  // `policy` and `roles` arrive keyed by name, not as arrays. Mocking them as
+  // arrays is what hid a `.map is not a function` crash on this panel.
   it("renders the real policy with every control disabled", async () => {
     mount({
       status: {
-        classification_levels: [
-          { level: "CONFIDENTIAL", max_tool_risk: "medium", requires_approval: true, local_models_only: true },
-        ],
-        roles: [
-          { role: "ENGINEER", clearance: "CONFIDENTIAL", readable_classifications: ["PUBLIC", "INTERNAL", "CONFIDENTIAL"] },
-        ],
+        classification_levels: ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "HIGHLY_CONFIDENTIAL"],
+        policy: {
+          CONFIDENTIAL: {
+            local_models_only: true,
+            max_tool_risk: "medium",
+            human_approval_required: true,
+            restricted_artifact_storage: false,
+            notes: "Local models only, internal tools only.",
+          },
+        },
+        roles: {
+          ENGINEER: {
+            clearance: "CONFIDENTIAL",
+            readable_classifications: ["PUBLIC", "INTERNAL", "CONFIDENTIAL"],
+          },
+        },
       },
     });
 
@@ -193,5 +205,11 @@ describe("the policy panel", () => {
     expect(checkboxes.length).toBeGreaterThan(0);
     for (const box of checkboxes) expect(box).toBeDisabled();
     expect(screen.getByText(/Editing requires the policy service/i)).toBeInTheDocument();
+
+    // Both keyed objects rendered rather than throwing.
+    // CONFIDENTIAL appears both as a policy row and as the engineer's clearance.
+    expect(screen.getAllByText("CONFIDENTIAL").length).toBeGreaterThan(1);
+    expect(screen.getByText("ENGINEER")).toBeInTheDocument();
+    expect(screen.getByText("medium")).toBeInTheDocument();
   });
 });

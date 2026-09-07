@@ -31,7 +31,13 @@ import {
   useSecurityStatus,
   useSovereignty,
 } from "@/lib/queries";
-import type { AuditEvent, Sovereignty } from "@/lib/types";
+import type {
+  AuditEvent,
+  Classification,
+  PolicyRule,
+  Role,
+  Sovereignty,
+} from "@/lib/types";
 import { EmptyState } from "@/components/states/EmptyState";
 import { ErrorState } from "@/components/states/ErrorState";
 
@@ -442,16 +448,23 @@ function AuditPanel() {
                   </td>
                 </tr>
               )}
-              {(audit.data?.items ?? []).map((entry) => (
-                <AuditRow
-                  key={entry.id}
-                  entry={entry}
-                  open={expanded === entry.id}
-                  onToggle={() =>
-                    setExpanded((current) => (current === entry.id ? null : entry.id))
-                  }
-                />
-              ))}
+              {(audit.data?.items ?? []).map((entry, index) => {
+                // Ledger entries carry no id of their own, so the row is
+                // identified by what does distinguish it. Keying on the absent
+                // `id` made every row compare equal, which expanded all of
+                // them at once.
+                const rowKey = `${entry.timestamp}-${entry.event_type}-${index}`;
+                return (
+                  <AuditRow
+                    key={rowKey}
+                    entry={entry}
+                    open={expanded === rowKey}
+                    onToggle={() =>
+                      setExpanded((current) => (current === rowKey ? null : rowKey))
+                    }
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -506,6 +519,22 @@ function AuditRow({
 function PolicyPanel() {
   const status = useSecurityStatus();
 
+  // `policy` and `roles` arrive keyed by name, not as arrays. The order of
+  // classification levels is meaningful (least to most sensitive) and the API
+  // states it in `classification_levels`, so it is used rather than the
+  // arbitrary order of the object's own keys.
+  const policy = status.data?.policy ?? {};
+  const order = status.data?.classification_levels ?? [];
+  const levels = (
+    order.length > 0 ? order : (Object.keys(policy) as Classification[])
+  )
+    .map((level) => [level, policy[level]] as const)
+    .filter((entry): entry is [Classification, PolicyRule] => Boolean(entry[1]));
+  const roles = Object.entries(status.data?.roles ?? {}).filter(
+    (entry): entry is [Role, { clearance: Classification | "none"; readable_classifications: Classification[] }] =>
+      Boolean(entry[1]),
+  );
+
   return (
     <section className="card mt-4">
       <span className="section-title">Policy in force</span>
@@ -532,7 +561,7 @@ function PolicyPanel() {
         <p className="loading-note">Reading the policy…</p>
       ) : (
         <div className="mt-3 space-y-4">
-          {status.data.classification_levels && (
+          {levels.length > 0 && (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -541,18 +570,37 @@ function PolicyPanel() {
                     <th>Max tool risk</th>
                     <th>Approval required</th>
                     <th>Local models only</th>
+                    <th>Restricted storage</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {status.data.classification_levels.map((level) => (
-                    <tr key={level.level}>
-                      <td className="mono">{level.level}</td>
-                      <td className="mono">{level.max_tool_risk ?? "—"}</td>
+                  {levels.map(([level, rule]) => (
+                    <tr key={level}>
+                      <td className="mono">{level}</td>
+                      <td className="mono">{rule.max_tool_risk ?? "—"}</td>
                       <td>
-                        <input type="checkbox" checked={!!level.requires_approval} disabled />
+                        <input
+                          type="checkbox"
+                          checked={!!rule.human_approval_required}
+                          disabled
+                          aria-label={`Approval required at ${level}`}
+                        />
                       </td>
                       <td>
-                        <input type="checkbox" checked={!!level.local_models_only} disabled />
+                        <input
+                          type="checkbox"
+                          checked={!!rule.local_models_only}
+                          disabled
+                          aria-label={`Local models only at ${level}`}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={!!rule.restricted_artifact_storage}
+                          disabled
+                          aria-label={`Restricted artifact storage at ${level}`}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -561,7 +609,7 @@ function PolicyPanel() {
             </div>
           )}
 
-          {status.data.roles && (
+          {roles.length > 0 && (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -572,12 +620,12 @@ function PolicyPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {status.data.roles.map((role) => (
-                    <tr key={role.role}>
-                      <td className="mono">{role.role}</td>
-                      <td className="mono">{role.clearance}</td>
+                  {roles.map(([role, entry]) => (
+                    <tr key={role}>
+                      <td className="mono">{role}</td>
+                      <td className="mono">{entry.clearance}</td>
                       <td className="mono">
-                        {role.readable_classifications.join(", ") || "—"}
+                        {(entry.readable_classifications ?? []).join(", ") || "—"}
                       </td>
                     </tr>
                   ))}
