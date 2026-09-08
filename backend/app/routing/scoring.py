@@ -237,7 +237,9 @@ def _reliability(record: ModelRecord, stat: ModelStat | None) -> FactorScore:
     return FactorScore("reliability", value, WEIGHTS["reliability"], note)
 
 
-def _effort_fit(record: ModelRecord, requirements) -> FactorScore:
+def _effort_fit(
+    record: ModelRecord, requirements, largest_vram_gb: float = 0.0
+) -> FactorScore:
     """How well the model's size matches the effort that was asked for.
 
     The operator says how much thinking a request deserves; this is what makes
@@ -260,9 +262,14 @@ def _effort_fit(record: ModelRecord, requirements) -> FactorScore:
             "effort_fit", 0.6, WEIGHTS["effort_fit"], "balanced effort; size not weighted"
         )
 
-    # Normalised against the largest model this deployment could hold. 24 GB is
-    # a workstation card; anything above is treated as maximally large.
-    size = min(1.0, vram / 24.0)
+    # Measured against the largest model actually in the running, not against
+    # a fixed ceiling. Against 24 GB every model on an 8 GB card scores in the
+    # bottom quarter, the spread between them is a few hundredths, and the
+    # control the operator was given makes no difference to what they get --
+    # which is worse than not offering it. Relative sizing puts the smallest
+    # candidate at 0 and the largest at 1, so asking changes the answer.
+    reference = largest_vram_gb or 24.0
+    size = min(1.0, vram / reference) if reference > 0 else 0.0
 
     if effort == "low":
         value = 1.0 - size
@@ -281,12 +288,13 @@ def score_model(
     requirements,
     gpu: GpuState,
     stat: ModelStat | None = None,
+    largest_vram_gb: float = 0.0,
 ) -> ScoreCard:
     factors = [
         _task_accuracy(record, requirements),
         _capability_match(record, requirements),
         _context_fit(record, requirements),
-        _effort_fit(record, requirements),
+        _effort_fit(record, requirements, largest_vram_gb),
         _latency(record, stat),
         _resource_efficiency(record, gpu),
         _historical_success(stat),

@@ -28,6 +28,11 @@ KV_CACHE_HEADROOM_GB = 0.8
 @dataclass
 class GpuState:
     present: bool = False
+    # False when the probe could not run at all -- nvidia-smi refused, timed
+    # out, or returned something unreadable. That is different from a machine
+    # with genuinely no GPU, and the router has to treat it differently:
+    # "unknown" must not be read as "zero".
+    known: bool = True
     name: str = "none"
     total_vram_gb: float = 0.0
     used_vram_gb: float = 0.0
@@ -132,7 +137,7 @@ class HardwareProbe:
             )
         except (subprocess.SubprocessError, OSError) as exc:
             logger.warning("GPU probe failed: %s", exc)
-            return GpuState(detail=f"probe failed: {type(exc).__name__}")
+            return GpuState(known=False, detail=f"probe failed: {type(exc).__name__}")
 
         line = result.stdout.strip().splitlines()
         if not line:
@@ -152,7 +157,7 @@ class HardwareProbe:
             )
         except ValueError as exc:
             logger.warning("could not parse nvidia-smi output: %s", exc)
-            return GpuState(detail="unparseable nvidia-smi output")
+            return GpuState(known=False, detail="unparseable nvidia-smi output")
 
 
 hardware = HardwareProbe()

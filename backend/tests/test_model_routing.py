@@ -261,3 +261,90 @@ def test_context_that_exceeds_every_window_fails_cleanly(clean_registry, gpu_8gb
     )
     assert not decision.succeeded
     assert "context window" in decision.rejections[0].reason
+
+
+# --- a sensor that cannot be read is not a hardware fact -------------------
+
+
+def test_an_unreadable_gpu_probe_does_not_reject_every_model(clean_registry):
+    """`nvidia-smi` refusing must not downgrade the whole deployment.
+
+    The probe started failing with a permissions error, so the router saw
+    "no GPU, 0 GB" and rejected every model that needed VRAM -- while Ollama
+    next door went on serving them perfectly well. The machine was quietly
+    reduced to its smallest model because a sensor could not be read.
+
+    A genuinely GPU-less machine is still a reason to refuse; an unreadable
+    probe is not.
+    """
+    from app.routing.hardware import GpuState
+    from app.routing.model_router import ModelRouter, TaskRequirements
+
+    _model(clean_registry, id="big", vram_required_gb=6.5, benchmark_score=0.85)
+
+    router = ModelRouter(clean_registry)
+
+    unknown = GpuState(present=False, known=False, detail="probe failed")
+    decision = router.route(TaskRequirements(model_type="reasoning"), gpu=unknown)
+    assert decision.selected is not None, "an unreadable probe rejected everything"
+
+    # A machine that really has no GPU still refuses what will not run.
+    absent = GpuState(present=False, known=True, detail="nvidia-smi not present")
+    decision = router.route(TaskRequirements(model_type="reasoning"), gpu=absent)
+    assert decision.selected is None
+    assert any("no GPU" in r.reason for r in decision.rejections)
+
+
+# --- effort has to change the answer --------------------------------------
+
+
+def test_effort_changes_which_model_is_chosen(clean_registry):
+    """Low picks the small model, high picks the large one.
+
+    Sized against a fixed 24 GB ceiling, every model on an 8 GB card scored in
+    the bottom quarter and the spread between them was a few hundredths -- so
+    the control made no difference to what the operator got, which is worse
+    than not offering it. Sizing is relative to the field.
+    """
+    from app.routing.model_router import ModelRouter, TaskRequirements
+
+    _model(
+        clean_registry,
+        id="small",
+        model_identifier="small:1b",
+        vram_required_gb=1.4,
+        benchmark_score=0.62,
+    )
+    _model(
+        clean_registry,
+        id="large",
+        model_identifier="large:8b",
+        vram_required_gb=6.5,
+        benchmark_score=0.80,
+    )
+
+    router = ModelRouter(clean_registry)
+
+    low = router.route(TaskRequirements(model_type="reasoning", effort="low"))
+    high = router.route(TaskRequirements(model_type="reasoning", effort="high"))
+
+    assert low.selected is not None and low.selected.id == "small"
+    assert high.selected is not None and high.selected.id == "large"
+
+
+def test_balanced_effort_leaves_the_choice_on_merit(clean_registry):
+    """Not asking must not tilt the result either way."""
+    from app.routing.hardware import GpuState
+    from app.routing.model_router import TaskRequirements
+    from app.routing.scoring import score_model
+
+    record = _model(clean_registry, id="any", vram_required_gb=4.0)
+    card = score_model(
+        record,
+        TaskRequirements(effort="balanced"),
+        GpuState(present=True, name="test", total_vram_gb=16.0),
+        None,
+        largest_vram_gb=8.0,
+    )
+    effort = next(f for f in card.factors if f.name == "effort_fit")
+    assert "not weighted" in effort.explanation

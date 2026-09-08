@@ -104,18 +104,34 @@ class ModelRegistry:
     def reconcile(self, present_identifiers: set[str]) -> dict[str, str]:
         """Mark models ready or unavailable against what the runtime holds.
 
-        Ollama tags carry an explicit tag (``qwen3:8b``) and sometimes a
-        ``:latest`` suffix, so matching is done on both forms.
+        The tag is part of the identity. ``qwen3:8b`` and ``qwen3:1.7b`` are
+        different models with different weights, different VRAM needs and
+        different answers, so a catalogue entry naming one is not satisfied by
+        the other being pulled.
+
+        This used to fall back to comparing family names with the tag stripped,
+        which reported every ``qwen3:*`` entry as ready the moment any single
+        qwen3 was pulled. The registry then advertised a model that was not
+        there, the router selected it on merit, and generation failed at the
+        point of use with "is not pulled locally" -- the worst place to
+        discover it. An entry with no tag of its own is still matched loosely,
+        because ``bge-m3`` genuinely does mean whatever ``bge-m3:*`` is
+        installed.
         """
-        normalised = {identifier.split(":")[0] for identifier in present_identifiers}
+        families: dict[str, set[str]] = {}
+        for present in present_identifiers:
+            families.setdefault(present.split(":")[0], set()).add(present)
+
         outcome: dict[str, str] = {}
 
         for record in self.all():
             identifier = record.model_identifier
+            has_tag = ":" in identifier
             available = (
                 identifier in present_identifiers
                 or f"{identifier}:latest" in present_identifiers
-                or identifier.split(":")[0] in normalised
+                # Only an untagged entry may match on the family alone.
+                or (not has_tag and bool(families.get(identifier)))
             )
             record.status = "ready" if available else "unavailable"
             # The remedy differs by runtime, and naming the wrong one sends an

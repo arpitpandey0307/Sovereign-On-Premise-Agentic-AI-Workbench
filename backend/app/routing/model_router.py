@@ -154,8 +154,13 @@ class ModelRouter:
         self.db = db
         self.registry = ModelRegistry(db)
 
-    def route(self, requirements: TaskRequirements) -> RoutingDecision:
-        gpu = hardware.state()
+    def route(
+        self, requirements: TaskRequirements, gpu: GpuState | None = None
+    ) -> RoutingDecision:
+        # Injectable so the hardware can be stated rather than probed. The
+        # router's behaviour on an unreadable probe is worth testing, and it
+        # cannot be reached by asking the machine nicely.
+        gpu = gpu if gpu is not None else hardware.state()
         candidates = self.registry.all()
         decision = RoutingDecision(
             selected=None,
@@ -172,12 +177,17 @@ class ModelRouter:
             logger.warning("routing failed: %s", decision.failure_reason)
             return decision
 
+        # The size of the biggest survivor, so "low" and "high" are measured
+        # against the field the operator is actually choosing between.
+        largest = max((record.vram_required_gb or 0.0) for record in candidates)
+
         cards = [
             score_model(
                 record,
                 requirements,
                 gpu,
                 self.registry.stat(record.id, requirements.task_type),
+                largest_vram_gb=largest,
             )
             for record in candidates
         ]
@@ -316,6 +326,15 @@ class ModelRouter:
 
             # No GPU: only models that declare no VRAM need can run.
             if not gpu.present:
+                # The probe failed rather than finding nothing. Refusing every
+                # model that needs VRAM would silently downgrade the whole
+                # deployment to its smallest model because a sensor could not
+                # be read -- while the runtime next door goes on using the GPU
+                # perfectly well. Let it through and say the fit is unverified.
+                if not gpu.known:
+                    survivors.append(record)
+                    continue
+
                 if required > 0:
                     decision.rejections.append(
                         Rejection(record.id, "hardware", "no GPU present")

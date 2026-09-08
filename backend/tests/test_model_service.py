@@ -235,3 +235,127 @@ def test_structured_output_is_salvaged_from_prose():
 
     parsed, ok = coerce_structured("no json at all")
     assert not ok and parsed is None
+
+
+# --- reconciliation against what the runtime actually holds ----------------
+
+
+# Columns to carry across the snapshot. Listed rather than introspected so a
+# new column is a visible decision rather than a silent omission.
+_REGISTRY_COLUMNS = (
+    "id",
+    "name",
+    "provider",
+    "model_identifier",
+    "type",
+    "capabilities",
+    "context_length",
+    "quantization",
+    "vram_required_gb",
+    "supported_modalities",
+    "approved_classifications",
+    "status",
+    "status_detail",
+    "benchmark_score",
+    "latency_score",
+    "reliability_score",
+    "notes",
+)
+
+
+@pytest.fixture
+def clean_registry(db):
+    """An empty model table for the duration, then put back as it was.
+
+    Restored rather than merely emptied: the registry is shared state for the
+    whole session, and a fixture that left it empty broke whichever suite ran
+    next -- which is exactly the sort of failure that only appears in a full
+    run and looks like a bug in innocent code.
+    """
+    saved = [
+        {column: getattr(record, column) for column in _REGISTRY_COLUMNS}
+        for record in db.query(ModelRecord).all()
+    ]
+    db.query(ModelRecord).delete()
+    db.commit()
+
+    yield db
+
+    db.query(ModelRecord).delete()
+    for row in saved:
+        db.add(ModelRecord(**row))
+    db.commit()
+
+
+def _entry(db, model_id: str, identifier: str) -> ModelRecord:
+    """One catalogue row, built directly.
+
+    Not via `seed()`: that installs whichever profile suits the machine's own
+    GPU, so a test built on it asserts something different on every host.
+    """
+    record = ModelRecord(
+        id=model_id,
+        name=model_id,
+        provider="ollama",
+        model_identifier=identifier,
+        type="reasoning",
+        capabilities=["reasoning"],
+        context_length=8192,
+        quantization="Q4_K_M",
+        vram_required_gb=2.0,
+        supported_modalities=["text"],
+        approved_classifications=[],
+        status="unavailable",
+        benchmark_score=0.7,
+        latency_score=0.7,
+        reliability_score=0.9,
+    )
+    db.add(record)
+    db.commit()
+    return record
+
+
+def test_a_pulled_sibling_does_not_make_a_missing_model_ready(clean_registry):
+    """`qwen3:8b` being pulled must not report `qwen3:1.7b` as ready.
+
+    They are different models: different weights, different VRAM, different
+    answers. Matching on the family with the tag stripped reported every
+    `qwen3:*` entry as present the moment any one qwen3 was pulled, so the
+    registry advertised a model that was not installed, the router selected it
+    on merit, and generation failed at the point of use with "is not pulled
+    locally" -- which is the worst place to find out.
+    """
+    _entry(clean_registry, "reasoner-qwen3-8b-4bit", "qwen3:8b")
+    _entry(clean_registry, "reasoner-qwen3-1_7b-q4", "qwen3:1.7b")
+
+    registry = ModelRegistry(clean_registry)
+    # Exactly what this machine had: one qwen3, and it is the 8b.
+    registry.reconcile({"qwen3:8b", "qwen2.5-coder:7b", "gemma3:4b", "bge-m3:latest"})
+
+    big = registry.get("reasoner-qwen3-8b-4bit")
+    small = registry.get("reasoner-qwen3-1_7b-q4")
+
+    assert big is not None and big.status == "ready"
+    assert small is not None and small.status == "unavailable"
+    assert "ollama pull qwen3:1.7b" in small.status_detail
+
+
+def test_an_untagged_entry_matches_whatever_tag_is_installed(clean_registry):
+    """`bge-m3` genuinely does mean whichever `bge-m3:*` is there."""
+    _entry(clean_registry, "embed-bge", "bge-m3")
+
+    registry = ModelRegistry(clean_registry)
+    registry.reconcile({"bge-m3:latest"})
+
+    record = registry.get("embed-bge")
+    assert record is not None and record.status == "ready"
+
+
+def test_nothing_pulled_leaves_nothing_ready(clean_registry):
+    _entry(clean_registry, "reasoner-qwen3-8b-4bit", "qwen3:8b")
+
+    registry = ModelRegistry(clean_registry)
+    registry.reconcile(set())
+
+    record = registry.get("reasoner-qwen3-8b-4bit")
+    assert record is not None and record.status == "unavailable"
