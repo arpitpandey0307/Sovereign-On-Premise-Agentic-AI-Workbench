@@ -37,6 +37,7 @@ from app.integrations import registry
 from app.orchestration import planner
 from app.orchestration.state import TaskState, error, step
 from app.schemas.shared import Evidence
+from app.security import injection
 from app.tools.base import ToolContext
 from app.tools.gateway import gateway
 
@@ -186,6 +187,87 @@ def analyse_inputs(state: TaskState) -> dict:
                 unreadable=len(unreadable),
             )
         ],
+    }
+
+
+
+def inspect_images(state: TaskState) -> dict:
+    """Show the attached images to a vision model, with the user's question.
+
+    Ingestion already described every image, but it did so to a fixed prompt
+    before anyone had asked anything. Answering from that stored text means a
+    reasoning model paraphrases a description instead of anything looking at
+    the picture -- which is why "what is in this image" came back from the
+    reasoner, and why the trace named a reasoning model as the only model
+    involved.
+
+    Non-images fall out here for free: the tool refuses anything a vision
+    model cannot be shown, so no model is called for them.
+    """
+    from app.documents import vision
+
+    context = _context(state)
+    looked: list[dict] = []
+    models: list[str] = []
+
+    for file_id in state.get("input_files") or []:
+        fetched = gateway.call("file.image", {"file_id": file_id}, context)
+        if not fetched.ok:
+            continue
+
+        filename = fetched.data.get("filename", "")
+        with SessionLocal() as db:
+            result = vision.look(
+                db,
+                fetched.data.get("image") or b"",
+                state["request"],
+                classification=fetched.data.get("classification", "INTERNAL"),
+            )
+
+        if not result.succeeded:
+            # An image we could fetch but not read is worth saying out loud,
+            # for the same reason an unreadable attachment is.
+            looked.append(
+                {
+                    "filename": filename,
+                    "error": result.detail or "the vision model could not read it",
+                }
+            )
+            logger.warning("vision could not read %s: %s", filename, result.detail)
+            continue
+
+        looked.append({"filename": filename, "text": result.text})
+        if result.model_id:
+            models.append(result.model_id)
+            _emit(
+                state,
+                "model_selected",
+                {"model_id": result.model_id, "purpose": "looking at an image"},
+            )
+            # Written to the ledger as well as the stream. The stream drives
+            # the live timeline and is then discarded; the receipt is rebuilt
+            # from the ledger afterwards, and a receipt that names only the
+            # reasoner is under-reporting which models saw the material.
+            record_audit(
+                event_type="MODEL_SELECTED",
+                action="model:vision",
+                component="orchestrator",
+                user_id=UUID(state["user_id"]),
+                task_id=UUID(state["task_id"]),
+                metadata={
+                    "selected": result.model_id,
+                    "purpose": "looking at an attached image",
+                    "filename": filename,
+                },
+            )
+
+    if not looked:
+        return {"steps": [step("inspect_images", images=0)]}
+
+    _emit(state, "images_inspected", {"images": len(looked), "models": models})
+    return {
+        "image_readings": looked,
+        "steps": [step("inspect_images", images=len(looked), models=",".join(models))],
     }
 
 
@@ -472,6 +554,45 @@ def reason(state: TaskState) -> dict:
     # in with the document text rather than the evidence list because it is
     # not a retrieved passage -- it is a figure this run produced, and the
     # validator must not be able to mistake it for a citation.
+    # What a vision model saw when it was shown the attachment and asked this
+    # question. Kept above the extracted text because it is an answer to the
+    # question, where the stored description is not.
+    readings = state.get("image_readings") or []
+    if readings:
+        blocks = []
+        for reading in readings:
+            name = reading.get("filename") or "attached image"
+            if reading.get("error"):
+                blocks.append(f"{name}: could not be read -- {reading['error']}")
+            else:
+                blocks.append(f"{name}:\n" + reading.get("text", ""))
+        document_text = (
+            "--- what a vision model saw in the attached image(s) ---\n"
+            + "\n\n".join(blocks)
+            + "\n\n"
+            + document_text
+        ).strip()
+
+    # A document that tries to instruct the model is reported, not swallowed.
+    # The user sees it in the trace and the security team sees it in the
+    # ledger; neither happens if the text is quietly dropped, and quietly
+    # dropping it also loses a legitimate procedure that merely reads oddly.
+    suspicious = injection.scan(document_text)
+    if suspicious:
+        _emit(
+            state,
+            "injection_suspected",
+            {"findings": [f.as_dict() for f in suspicious]},
+        )
+        record_audit(
+            event_type="INJECTION_SUSPECTED",
+            action="document:instruction_detected",
+            component="orchestrator",
+            user_id=UUID(state["user_id"]),
+            task_id=UUID(state["task_id"]),
+            metadata={"findings": [f.as_dict() for f in suspicious]},
+        )
+
     computation = state.get("computation") or {}
     if computation.get("stdout"):
         document_text = (
@@ -833,6 +954,7 @@ def build_graph():
     workflow.add_node("analyse_request", analyse_request)
     workflow.add_node("check_permissions", check_permissions)
     workflow.add_node("analyse_inputs", analyse_inputs)
+    workflow.add_node("inspect_images", inspect_images)
     workflow.add_node("build_plan", build_plan)
     workflow.add_node("retrieve", retrieve)
     workflow.add_node("reason", reason)
@@ -859,7 +981,14 @@ def build_graph():
         },
     )
     workflow.add_edge("converse", "finalise")
-    workflow.add_edge("analyse_inputs", "build_plan")
+    # Attachments get a look before planning; without any there is nothing to
+    # look at and the step would only add noise to the trace.
+    workflow.add_conditional_edges(
+        "analyse_inputs",
+        lambda state: "inspect_images" if state.get("input_files") else "build_plan",
+        {"inspect_images": "inspect_images", "build_plan": "build_plan"},
+    )
+    workflow.add_edge("inspect_images", "build_plan")
     workflow.add_edge("build_plan", "retrieve")
     workflow.add_conditional_edges(
         "retrieve",

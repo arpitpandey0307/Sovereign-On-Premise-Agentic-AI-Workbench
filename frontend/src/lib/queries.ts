@@ -20,6 +20,7 @@ import {
 import { api } from "@/lib/api";
 import type { TaskExecution } from "@/lib/pipeline";
 import type {
+  AccessRequest,
   ArtifactRecord,
   AuditPage,
   Conversation,
@@ -68,6 +69,8 @@ export const keys = {
   modelHealth: ["models", "health"] as const,
   tools: ["tools"] as const,
   knowledgeStatus: ["knowledge", "status"] as const,
+  accessRequests: (state?: string) => ["access-requests", state ?? "all"] as const,
+  myAccessRequests: ["access-requests", "mine"] as const,
   sandboxStatus: ["sandbox", "status"] as const,
 };
 
@@ -493,5 +496,77 @@ export function useKnowledgeStatus(options?: Options<Record<string, unknown>>) {
     queryFn: () => api.get<Record<string, unknown>>("/internal/knowledge/status"),
     staleTime: 30_000,
     ...options,
+  });
+}
+
+// --- access requests -------------------------------------------------------
+
+/**
+ * The knowledge base is an oversight surface, so most people meet it as a 403.
+ * These hooks are what turns that refusal into a next step rather than a wall:
+ * ask, with a reason, and an administrator decides.
+ */
+export function useMyAccessRequests(options?: Options<{ items: AccessRequest[] }>) {
+  return useQuery({
+    queryKey: keys.myAccessRequests,
+    queryFn: () =>
+      api.get<{ items: AccessRequest[] }>("/api/v1/access-requests/mine"),
+    ...LIVE,
+    ...options,
+  });
+}
+
+/** The approver queue. Only an oversight role may read it. */
+export function useAccessRequests(
+  state?: "pending",
+  options?: Options<{ items: AccessRequest[] }>,
+) {
+  return useQuery({
+    queryKey: keys.accessRequests(state),
+    queryFn: () =>
+      api.get<{ items: AccessRequest[] }>(
+        state ? `/api/v1/access-requests?state=${state}` : "/api/v1/access-requests",
+      ),
+    ...LIVE,
+    ...options,
+  });
+}
+
+export function useRequestAccess() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      scope: string;
+      justification: string;
+      document_id?: string;
+    }) => api.post<AccessRequest>("/api/v1/access-requests", body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.myAccessRequests });
+    },
+  });
+}
+
+export function useDecideAccessRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      approved,
+      note,
+      hours,
+    }: {
+      id: string;
+      approved: boolean;
+      note?: string;
+      hours?: number;
+    }) =>
+      api.post<AccessRequest>(`/api/v1/access-requests/${id}/decide`, {
+        approved,
+        note: note ?? "",
+        hours: hours ?? 24,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["access-requests"] });
+    },
   });
 }

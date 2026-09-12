@@ -285,6 +285,29 @@ def test_retrieval_is_capped_at_the_callers_clearance(client, make_user, db):
     )
     db.commit()
 
+    # Both of these callers reach the knowledge base by grant or by role, so
+    # what is being measured below is clearance and nothing else. The engineer
+    # is given an approved, unexpired request -- which is exactly the point:
+    # a grant opens the door to the surface, it does not raise what the holder
+    # may read once inside. Those are separate controls and must stay separate.
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.models.access_request import AccessRequest
+
+    db.add(
+        AccessRequest(
+            user_id=engineer.id,
+            user_email=engineer.email,
+            user_roles="ENGINEER",
+            resource="knowledge",
+            action="search",
+            justification="Investigating a V-999 maintenance deferral.",
+            state="approved",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    db.commit()
+
     engineer_headers = {
         "Authorization": f"Bearer {_token(client, engineer, password)}"
     }
@@ -302,7 +325,24 @@ def test_retrieval_is_capped_at_the_callers_clearance(client, make_user, db):
     )
 
     # The same query as a MANAGER returns it, which proves the filter is a
-    # clearance check rather than the search simply finding nothing.
+    # clearance check rather than the search simply finding nothing. A MANAGER
+    # holds no grant and needs none: ADMIN and SECURITY_ADMIN are not the only
+    # roles with clearance, they are the only roles with this surface, so the
+    # manager is granted one the same way.
+    db.add(
+        AccessRequest(
+            user_id=manager.id,
+            user_email=manager.email,
+            user_roles="MANAGER",
+            resource="knowledge",
+            action="search",
+            justification="Reviewing the same deferral for sign-off.",
+            state="approved",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    db.commit()
+
     manager_headers = {
         "Authorization": f"Bearer {_token(client, manager, manager_password)}"
     }

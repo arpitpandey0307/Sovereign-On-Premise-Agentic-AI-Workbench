@@ -13,12 +13,13 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { GitBranch, Search, Upload } from "lucide-react";
-import { describeError } from "@/lib/api";
+import { ApiError, describeError } from "@/lib/api";
 import { useRole } from "@/lib/auth";
 import { useDocuments, useEquipment, useKnowledgeSearch } from "@/lib/queries";
 import type { Evidence, SearchResponse } from "@/lib/types";
 import { ClassificationBadge } from "@/components/ui/StatusPill";
 import { SecurityOversightNote } from "@/components/states/SecurityOversightNote";
+import { RequestAccess } from "@/components/access/RequestAccess";
 
 export function Knowledge() {
   const { isSecurityOnly } = useRole();
@@ -87,9 +88,20 @@ export function Knowledge() {
         </button>
       </form>
 
-      {search.isError && (
-        <p className="error-note">{describeError(search.error).detail}</p>
-      )}
+      {search.isError &&
+        (search.error instanceof ApiError && search.error.status === 403 ? (
+          /*
+           * Not an error to apologise for. The knowledge base is an oversight
+           * surface, and this is the screen where somebody without it asks.
+           */
+          <RequestAccess
+            scope="knowledge.search"
+            title="The knowledge base is restricted"
+            reason="Searching the whole corpus at once, and walking the equipment graph, is limited to administrators and the security team. Ask for a time-boxed grant and an administrator will decide."
+          />
+        ) : (
+          <p className="error-note">{describeError(search.error).detail}</p>
+        ))}
 
       {result ? (
         <SearchResults result={result} nothingIndexed={nothingIndexed} />

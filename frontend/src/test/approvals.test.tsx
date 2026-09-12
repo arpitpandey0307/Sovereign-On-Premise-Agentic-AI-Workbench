@@ -72,7 +72,12 @@ describe("Approval Requests", () => {
   it("asks only for tasks waiting on approval", async () => {
     const calls = mount(() => json(WAITING));
     await screen.findByText(/Export the relief-valve design basis/i);
-    expect(calls[0].url).toMatch(/status=waiting_approval/);
+    // The screen now also loads the access-request queue, so the task fetch
+    // is one of several rather than the first. What matters is that it asks
+    // only for tasks that are actually waiting, not which order it asks in.
+    expect(
+      calls.some((call) => /status=waiting_approval/.test(call.url)),
+    ).toBe(true);
   });
 
   it("says so plainly when nothing is waiting", async () => {

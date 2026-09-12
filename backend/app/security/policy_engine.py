@@ -59,6 +59,12 @@ class PolicyEngine:
         """
         allowed, reason = acl.check(roles, resource, action)
         if not allowed:
+            # The role does not carry it. A temporary grant might, so the
+            # denial is not final until the grants have been consulted -- this
+            # is the whole mechanism behind "request access" on a refusal.
+            granted, until = _granted_by_request(user_id, resource, action)
+            if granted:
+                return True, f"granted until {until} by an approved request"
             return False, reason
 
         if classification is None:
@@ -188,3 +194,32 @@ def _is_local(model: ModelDescriptor) -> bool:
 
 
 policy_engine = PolicyEngine()
+
+
+def _granted_by_request(user_id, resource: str, action: str) -> tuple[bool, str]:
+    """Whether an approved, unexpired request covers this exact permission.
+
+    Deliberately narrow: a grant names one resource and one action. It never
+    raises the holder's clearance, so a grant to search the corpus still only
+    returns material the requester's role was already cleared to read. The two
+    controls stay separate, which is the same reason roles and clearance are
+    separate everywhere else in this system.
+
+    A failure to read the grants is a denial, not an exception. If the table
+    cannot be reached, the safe answer is the one the role already gave.
+    """
+    if user_id is None:
+        return False, ""
+
+    try:
+        from app.db.database import SessionLocal
+        from app.db.repositories.access_requests import AccessRequestRepository
+
+        with SessionLocal() as db:
+            for grant in AccessRequestRepository(db).active_grants(user_id):
+                if grant.resource == resource and grant.action == action:
+                    return True, grant.expires_at.isoformat(timespec="minutes")
+    except Exception as exc:  # noqa: BLE001 - an unreadable grant is a denial
+        logger.warning("could not read access grants for %s: %s", user_id, exc)
+
+    return False, ""

@@ -419,3 +419,29 @@ export type ArtifactRecord = {
   validation_status: "passed" | "failed" | "pending" | string;
   download_url: string;
 };
+
+/**
+ * A request for a permission the asker's role does not carry.
+ *
+ * `active` is the only field that answers "does this work right now" -- an
+ * approved request whose `expires_at` has passed is still `approved`, because
+ * the record of the decision is not rewritten when the clock moves.
+ */
+export interface AccessRequest {
+  id: string;
+  scope: string;
+  resource: string;
+  action: string;
+  document_id: string | null;
+  user_id: string;
+  user_email: string;
+  user_roles: string[];
+  justification: string;
+  state: "pending" | "approved" | "denied" | "revoked";
+  active: boolean;
+  created_at: string | null;
+  decided_by_email: string;
+  decided_at: string | null;
+  decision_note: string;
+  expires_at: string | null;
+}

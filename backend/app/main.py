@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import access_requests as access_api
 from app.api import knowledge as knowledge_api
 from app.api import models as models_api
 from app.api import orchestration as orchestration_api
@@ -147,6 +148,7 @@ app.include_router(models_api.router)
 app.include_router(knowledge_api.router)
 app.include_router(orchestration_api.router)
 app.include_router(security_api.router)
+app.include_router(access_api.router)
 
 
 def _part_status(port: object) -> str:

@@ -8,6 +8,7 @@ OCR of a scanned P&ID.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, BinaryIO
 from uuid import UUID
 
@@ -33,6 +34,9 @@ from app.db.models import User
 from app.db.repositories.files import FileRepository
 from app.integrations import registry
 from app.schemas.api import FileResponse, Page
+from app.security import uploads
+
+logger = logging.getLogger("workbench.files")
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -100,17 +104,56 @@ def upload_file(
     background: BackgroundTasks,
     file: Annotated[UploadFile, File()],
 ) -> FileResponse:
-    mime_type = file.content_type or "application/octet-stream"
-    if mime_type not in ALLOWED_MIME_TYPES:
+    declared = file.content_type or "application/octet-stream"
+    filename = uploads.safe_filename(file.filename)
+
+    if declared not in ALLOWED_MIME_TYPES:
+        record_audit(
+            event_type="UPLOAD_REJECTED",
+            action="file:upload",
+            user_id=user.id,
+            metadata={"reason": "declared_type", "declared": declared},
+        )
         raise UnsupportedMediaTypeError(
-            f"{mime_type} is not an accepted document type.",
+            f"{declared} is not an accepted document type.",
             details={"accepted": sorted(ALLOWED_MIME_TYPES)},
+        )
+
+    # What the bytes say, which is the only claim worth anything. The declared
+    # type is written by whatever sent the request; this one is measured.
+    head = file.file.read(uploads.SNIFF_BYTES)
+    file.file.seek(0)
+    verdict = uploads.check(head, declared, ALLOWED_MIME_TYPES)
+    if not verdict.ok:
+        record_audit(
+            event_type="UPLOAD_REJECTED",
+            action="file:upload",
+            user_id=user.id,
+            metadata={
+                "reason": "content_mismatch",
+                "declared": declared,
+                "detail": verdict.reason,
+            },
+        )
+        raise UnsupportedMediaTypeError(verdict.reason)
+
+    mime_type = verdict.mime_type
+    if verdict.reason:
+        # Accepted, but not what it said it was. Worth recording either way:
+        # done deliberately it is an attempt, done accidentally it explains a
+        # later parsing failure.
+        logger.warning("upload type mismatch for %s: %s", filename, verdict.reason)
+        record_audit(
+            event_type="UPLOAD_REJECTED",
+            action="file:upload:mismatch",
+            user_id=user.id,
+            metadata={"reason": "type_mismatch", "detail": verdict.reason},
         )
 
     reader = _LimitedReader(file.file, settings.max_upload_size_bytes)
     try:
         storage_path, size_bytes, sha256 = storage.save(
-            reader, owner_id=user.id, filename=file.filename or "upload"
+            reader, owner_id=user.id, filename=filename
         )
     except PayloadTooLargeError:
         # The partial file is removed by the storage adapter itself.
@@ -118,7 +161,7 @@ def upload_file(
             event_type="UPLOAD_REJECTED",
             action="file:upload",
             user_id=user.id,
-            metadata={"reason": "payload_too_large", "filename": file.filename},
+            metadata={"reason": "payload_too_large", "filename": filename},
         )
         raise
     finally:
@@ -130,7 +173,7 @@ def upload_file(
 
     record = FileRepository(db).create(
         owner_id=user.id,
-        filename=file.filename or "upload",
+        filename=filename,
         mime_type=mime_type,
         size_bytes=size_bytes,
         storage_path=storage_path,

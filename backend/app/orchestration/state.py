@@ -47,6 +47,10 @@ class TaskState(TypedDict, total=False):
     # handed and answers anyway is worse than one that says it could not read
     # it, because only the second is correctable by the person who attached it.
     unreadable_inputs: list[str]
+    # What a vision model saw when shown each attached image alongside the
+    # user's own question, as opposed to the generic description ingestion
+    # stored at upload time.
+    image_readings: list[dict]
     # Prose the assistant wrote back. Set on the conversational path, where
     # there is no artifact and the answer *is* the deliverable.
     answer: str

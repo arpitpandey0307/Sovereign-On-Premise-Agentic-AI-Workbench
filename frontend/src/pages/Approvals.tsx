@@ -20,6 +20,7 @@ import { useResumeTask, useTasks } from "@/lib/queries";
 import type { Task } from "@/lib/types";
 import { ErrorState } from "@/components/states/ErrorState";
 import { LoadingState } from "@/components/states/LoadingState";
+import { AccessQueue } from "@/components/access/AccessQueue";
 
 export function Approvals() {
   const { data, isLoading, isError, error, refetch } = useTasks({
@@ -38,6 +39,13 @@ export function Approvals() {
           decide.
         </div>
       </div>
+
+      {/*
+        * Access requests sit on the same screen as paused tasks because they
+        * are the same job: somebody is waiting on a person, and the queue is
+        * only useful if there is one place to look.
+        */}
+      <AccessQueue />
 
       {isError ? (
         <ErrorState error={error} onRetry={() => refetch()} />

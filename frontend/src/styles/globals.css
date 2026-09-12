@@ -1439,3 +1439,86 @@ body {
   .quick-card { transition: none; }
   .quick-card:hover { transform: none; }
 }
+
+/* --- access requests -----------------------------------------------------
+   A refusal that offers a next step, and the queue where somebody answers it.
+   Both live in the same visual vocabulary as the rest of the control room:
+   the panel is a card, the states reuse the pill colours, and nothing here
+   apologises — a restriction being enforced is the product working. */
+
+.request-access { border-color: var(--warn-line); }
+.request-access__head {
+  display: flex; gap: 12px; align-items: flex-start; margin-bottom: 14px;
+}
+.request-access__head h2 { font: 700 15px/1.3 var(--font-sans); margin: 0; }
+.request-access__head .muted { font-size: 12.5px; margin-top: 4px; max-width: 62ch; }
+.request-access__form { display: flex; flex-direction: column; gap: 8px; }
+.request-access__form label { font-size: 12.5px; color: var(--text-dim); }
+.request-access__form textarea {
+  width: 100%; resize: vertical;
+  background: var(--elevated); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 10px 12px; font: 400 13px/1.5 var(--font-sans);
+}
+.request-access__form textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+.request-access__actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.request-access__history { margin-top: 14px; }
+.request-access__history summary {
+  cursor: pointer; font-size: 12.5px; color: var(--text-dim);
+}
+.request-access__history ul { list-style: none; margin: 10px 0 0; padding: 0; }
+.request-access__history li {
+  padding: 10px 0; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px; font-size: 12.5px;
+}
+
+.notice {
+  display: flex; align-items: center; gap: 8px;
+  border-radius: var(--r-md); padding: 10px 12px; font-size: 12.5px;
+  background: var(--elevated); color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.notice--ok  { background: var(--ok-bg);     color: var(--ok-text);     border-color: var(--ok-line); }
+.notice--bad { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-line); }
+
+.pill--pending  { background: var(--warn-bg);   color: var(--warn-text); }
+.pill--approved { background: var(--ok-bg);     color: var(--ok-text); }
+.pill--denied   { background: var(--danger-bg); color: var(--danger-text); }
+.pill--revoked  { background: var(--elevated-2); color: var(--text-mute); }
+
+.access-queue { margin-bottom: 22px; }
+.access-queue__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.access-queue__row { display: flex; flex-direction: column; gap: 10px; }
+.access-queue__who { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.access-queue__who .muted { font-size: 12px; }
+.access-queue__why {
+  margin: 0; padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--elevated);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  font-size: 13px; line-height: 1.55; color: var(--text-primary);
+}
+.access-queue__decide {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.access-queue__decide label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim);
+}
+.access-queue__decide select,
+.access-queue__decide input[type="text"] {
+  background: var(--elevated); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 7px 10px; font: 400 12.5px/1 var(--font-sans);
+}
+.access-queue__decide input[type="text"] { flex: 1; min-width: 180px; }
+.access-queue__history { margin-top: 14px; }
+.access-queue__history summary { cursor: pointer; font-size: 12.5px; color: var(--text-dim); }
+.access-queue__history ul { list-style: none; margin: 10px 0 0; padding: 0; }
+.access-queue__history li {
+  padding: 9px 0; border-top: 1px solid var(--border); font-size: 12.5px;
+}

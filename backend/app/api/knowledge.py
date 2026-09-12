@@ -38,7 +38,17 @@ from app.schemas.api import (
 router = APIRouter(tags=["knowledge"])
 
 ReadUser = Annotated[User, Depends(require("document", "read"))]
-SearchUser = Annotated[User, Depends(require("document", "search"))]
+# The knowledge base as a browsable surface -- free-text search across the whole
+# corpus, and walking the equipment graph. Restricted to oversight roles, with
+# everyone else asking for a time-boxed grant.
+#
+# This is deliberately *not* the same gate the agent passes through. A Workbench
+# question still retrieves and still cites, because that path is scoped to one
+# question, filtered by the asker's clearance, and leaves an answer somebody can
+# check. What is restricted here is the other thing: querying the corpus at
+# large, repeatedly, and reading what comes back -- which is how a corpus walks
+# out of a building.
+KnowledgeUser = Annotated[User, Depends(require("knowledge", "search"))]
 IngestUser = Annotated[User, Depends(require("document", "ingest"))]
 SystemUser = Annotated[User, Depends(require("system", "read"))]
 
@@ -171,7 +181,7 @@ def reingest(file_id: UUID, user: IngestUser, db: DbSession) -> dict:
 
 @router.post("/api/v1/knowledge/search", response_model=SearchResponse)
 def search_knowledge(
-    payload: SearchRequest, user: SearchUser, db: DbSession
+    payload: SearchRequest, user: KnowledgeUser, db: DbSession
 ) -> SearchResponse:
     """Hybrid retrieval. Returns evidence the caller is cleared to read."""
     result = knowledge_service.search_with_diagnostics(
@@ -208,7 +218,7 @@ def search_knowledge(
 @router.get("/api/v1/knowledge/equipment/{tag}")
 def equipment(
     tag: str,
-    user: SearchUser,
+    user: KnowledgeUser,
     depth: Annotated[int, Query(ge=1, le=3)] = 1,
 ) -> dict:
     """What else relates to this equipment tag.

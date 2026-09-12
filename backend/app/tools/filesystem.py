@@ -14,6 +14,7 @@ import time
 from typing import ClassVar
 from uuid import UUID
 
+from app.core.storage import storage
 from app.db.database import SessionLocal
 from app.db.repositories.documents import DocumentRepository
 from app.db.repositories.files import FileRepository
@@ -38,6 +39,17 @@ MAX_TEXT_CHARS = 40_000
 # answering the wrong question.
 INGESTION_WAIT_SECONDS = 45.0
 INGESTION_POLL_SECONDS = 0.25
+
+# Mime types a vision model can actually look at. A PDF is not on the list:
+# its pages are rendered to images during ingestion, and the page images are
+# what the vision pass already described.
+VIEWABLE_MIME_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
+)
+
+# A vision model's context is small and the image is sent inline, so a very
+# large photograph is refused rather than silently truncated into nonsense.
+MAX_IMAGE_BYTES = 12 * 1024 * 1024
 
 
 class FileReadTool:
@@ -169,6 +181,88 @@ class FileWriteTool:
             ok=True,
             data={"name": args["name"], "bytes": path.stat().st_size},
             detail=f"wrote {args['name']}",
+        )
+
+
+class FileImageTool:
+    """Hand a task's own image back as bytes, for a model that can see.
+
+    ``file.read`` returns an image as the text that ingestion extracted from
+    it -- OCR output and the description the vision pass wrote at upload time.
+    That description was written to a generic prompt, before anybody had asked
+    a question, so answering "what is in this image" from it is answering from
+    a paraphrase rather than from the picture.
+
+    This tool exists so the question itself can be put to a vision model along
+    with the image. It goes through the gateway like everything else, so the
+    same policy check, argument validation and audit record apply, and it is
+    held to the same rule as the text read: only the files this task was
+    created with.
+    """
+
+    name = "file.image"
+    description = (
+        "Fetch one of the task's own input files as image bytes, so a vision "
+        "model can look at it directly. Images only."
+    )
+    risk_level = "low"
+    requires_approval = False
+    input_schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "file_id": {"type": "string", "description": "An input file's id."},
+        },
+        "required": ["file_id"],
+    }
+
+    def execute(self, args: dict, context: ToolContext) -> ToolResult:
+        try:
+            wanted = UUID(str(args.get("file_id")))
+        except ValueError:
+            return ToolResult.failed("'file_id' is not a valid id.")
+
+        if wanted not in context.input_file_ids:
+            return ToolResult.failed("That file is not one of this task's inputs.")
+
+        with SessionLocal() as db:
+            record = FileRepository(db).get(wanted)
+            if record is None:
+                return ToolResult.failed("Input file not found.")
+
+            mime = (record.mime_type or "").lower()
+            if mime not in VIEWABLE_MIME_TYPES:
+                return ToolResult.failed(
+                    f"{record.filename} is {mime or 'of unknown type'}, "
+                    "which a vision model cannot be shown directly."
+                )
+            if (record.size_bytes or 0) > MAX_IMAGE_BYTES:
+                return ToolResult.failed(
+                    f"{record.filename} is larger than "
+                    f"{MAX_IMAGE_BYTES // (1024 * 1024)} MB."
+                )
+
+            document = DocumentRepository(db).get_by_file(wanted)
+            classification = document.classification if document else "INTERNAL"
+            filename = record.filename
+            storage_path = record.storage_path
+
+        try:
+            payload = storage.read(storage_path)
+        except Exception as exc:  # noqa: BLE001 - storage failure is a refusal
+            logger.warning("could not read image %s: %s", wanted, exc)
+            return ToolResult.failed(f"{filename} could not be read from storage.")
+
+        return ToolResult(
+            ok=True,
+            data={
+                "file_id": str(wanted),
+                "filename": filename,
+                "mime_type": mime,
+                "classification": classification,
+                "image": payload,
+                "bytes": len(payload),
+            },
+            detail=f"fetched {filename} for viewing ({len(payload)} bytes)",
         )
 
 

@@ -51,6 +51,11 @@ PERMISSION_DENIED = "PERMISSION_DENIED"
 # Sovereignty
 EXTERNAL_CALL_ATTEMPTED = "EXTERNAL_CALL_ATTEMPTED"
 
+# A document tried to give the model instructions. Not proof of an attack --
+# a procedure really can contain the words "ignore the previous step" -- but
+# it is the signal a security team wants to see rather than have swallowed.
+INJECTION_SUSPECTED = "INJECTION_SUSPECTED"
+
 EVENT_TYPES = (
     LOGIN_SUCCEEDED,
     LOGIN_FAILED,
@@ -80,4 +85,5 @@ EVENT_TYPES = (
     APPROVAL_DENIED,
     PERMISSION_DENIED,
     EXTERNAL_CALL_ATTEMPTED,
+    INJECTION_SUSPECTED,
 )

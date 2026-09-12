@@ -56,6 +56,18 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class ValidationFailedError(AppError):
+    """A field the caller supplied is not acceptable.
+
+    Reports which field failed and never the value that was submitted -- the
+    value may be exactly the confidential thing the caller should not have
+    been sending, and an error message is the last place it should reappear.
+    """
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "validation_failed"
+
+
 class PayloadTooLargeError(AppError):
     status_code = status.HTTP_413_CONTENT_TOO_LARGE
     code = "payload_too_large"

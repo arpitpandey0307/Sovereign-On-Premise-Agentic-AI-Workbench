@@ -222,7 +222,9 @@ def test_lexical_rerank_still_works_standalone():
     assert ordered[0][0] == "b"
 
 
-def test_search_diagnostics_name_the_reranker_that_ran(client, auth_headers):
+def test_search_diagnostics_name_the_reranker_that_ran(
+    client, auth_headers, admin_headers
+):
     client.post(
         "/api/v1/files/upload",
         headers=auth_headers,
@@ -236,7 +238,7 @@ def test_search_diagnostics_name_the_reranker_that_ran(client, auth_headers):
     )
     body = client.post(
         "/api/v1/knowledge/search",
-        headers=auth_headers,
+        headers=admin_headers,
         json={"query": "isolate V-103", "limit": 3},
     ).json()
     # Honest about which tier ran rather than implying a model was involved.

@@ -294,7 +294,9 @@ def test_unknown_or_absent_roles_read_nothing():
 # --- the HTTP surface -----------------------------------------------------
 
 
-def test_search_endpoint_returns_evidence_and_diagnostics(client, auth_headers):
+def test_search_endpoint_returns_evidence_and_diagnostics(
+    client, auth_headers, admin_headers
+):
     client.post(
         "/api/v1/files/upload",
         headers=auth_headers,
@@ -307,9 +309,12 @@ def test_search_endpoint_returns_evidence_and_diagnostics(client, auth_headers):
         },
     )
 
+    # Uploaded by the engineer, searched by an administrator: the knowledge
+    # base is an oversight surface, and the corpus is not scoped to whoever
+    # happened to upload a document.
     response = client.post(
         "/api/v1/knowledge/search",
-        headers=auth_headers,
+        headers=admin_headers,
         json={"query": "how do I isolate V-103?", "limit": 3},
     )
     assert response.status_code == 200, response.text
@@ -408,10 +413,10 @@ def test_reading_a_document_above_your_clearance_reports_not_found(
 
 
 def test_equipment_endpoint_answers_from_the_relational_fallback(
-    client, auth_headers, db, corpus
+    client, admin_headers, db, corpus
 ):
     response = client.get(
-        "/api/v1/knowledge/equipment/v-103", headers=auth_headers
+        "/api/v1/knowledge/equipment/v-103", headers=admin_headers
     )
     assert response.status_code == 200
     body = response.json()

@@ -64,6 +64,72 @@ class VisionResult:
         return self.status == "described" and bool(self.text.strip())
 
 
+LOOK_SYSTEM = (
+    "You are looking at an image on behalf of a refinery engineer. Answer the "
+    "question about what you can actually see. If the image is an engineering "
+    "drawing, read the equipment tags, line numbers and notes exactly as "
+    "printed. If it is not, say plainly what it is instead. Never invent a "
+    "detail that is not visible, and say so when the image is unclear."
+)
+
+
+def look(
+    db: Session,
+    image: bytes,
+    question: str,
+    *,
+    classification: str = "INTERNAL",
+) -> VisionResult:
+    """Put the user's own question to a vision model, with the image.
+
+    ``describe`` runs at ingestion against a fixed prompt, before anyone has
+    asked anything, and what it writes is stored as the page's description.
+    Answering a later question from that stored text means answering from a
+    paraphrase: ask "what is in this image" and a reasoning model obligingly
+    rewrites the description it was handed, and the picture is never looked
+    at. This is the same call with the question in place of the prompt.
+    """
+    if not image:
+        return VisionResult(status="failed", detail="no image to look at")
+
+    asked = (question or "").strip() or VISION_PROMPT
+
+    try:
+        outcome = run_sync(
+            model_service.generate(
+                db,
+                TaskRequirements(
+                    task_type="vision_answer",
+                    model_type="vision",
+                    required_capabilities=["vision"],
+                    classification=classification,
+                    needs_vision=True,
+                    estimated_context_tokens=1024,
+                ),
+                prompt=asked,
+                system=LOOK_SYSTEM,
+                images=[image],
+                max_tokens=MAX_TOKENS,
+            )
+        )
+    except Exception as exc:
+        logger.warning("vision answer raised: %s", exc)
+        return VisionResult(status="failed", detail=f"{type(exc).__name__}: {exc}")
+
+    if not outcome.succeeded or outcome.response is None:
+        return VisionResult(
+            status="unavailable",
+            detail=outcome.error or "no vision model was available",
+        )
+
+    return VisionResult(
+        text=outcome.response.text.strip(),
+        model_id=outcome.model_used or "",
+        status="described",
+        detail=f"{outcome.response.latency_ms} ms",
+    )
+
+
 def describe(
     db: Session, image: bytes, *, classification: str = "INTERNAL"
 ) -> VisionResult:

@@ -48,6 +48,17 @@ PERMISSIONS: dict[tuple[str, str], set[str]] = {
     ("file", "upload"): _WORKERS,
     ("file", "delete"): _WORKERS,
     ("document", "read"): _WORKERS,
+    # The knowledge base -- searching the corpus and walking the equipment
+    # graph -- is oversight-only. It is the one surface that reaches across
+    # every document at once, so a single query there is worth more to an
+    # attacker than any individual file, and it is the surface a departing
+    # employee would use to take the plant's knowledge with them.
+    #
+    # Everyone else asks for it, with a reason, and gets a grant that expires.
+    # That is not friction for its own sake: the request and the approval are
+    # both recorded, so unusual interest in the corpus becomes visible instead
+    # of being indistinguishable from ordinary work.
+    ("knowledge", "search"): _OVERSIGHT,
     ("document", "search"): _WORKERS,
     ("document", "ingest"): _WORKERS,
     ("task", "read"): _WORKERS,

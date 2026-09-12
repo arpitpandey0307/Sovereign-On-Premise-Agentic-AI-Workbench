@@ -12,7 +12,12 @@ from app.tools.gateway import gateway
 
 def register_default_tools() -> None:
     """Install the MVP tool set, in the priority order the spec gives."""
-    from app.tools.filesystem import FileListTool, FileReadTool, FileWriteTool
+    from app.tools.filesystem import (
+        FileImageTool,
+        FileListTool,
+        FileReadTool,
+        FileWriteTool,
+    )
     from app.tools.generators.docx import DocxGenerateTool
     from app.tools.generators.pptx import PptxGenerateTool
     from app.tools.generators.xlsx import XlsxGenerateTool
@@ -22,6 +27,7 @@ def register_default_tools() -> None:
     for tool in (
         KnowledgeSearchTool(),
         FileReadTool(),
+        FileImageTool(),
         FileWriteTool(),
         FileListTool(),
         OcrExtractTool(),

@@ -94,3 +94,20 @@ def auth_headers(client, make_user):
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.fixture
+def admin_headers(client, make_user):
+    """A caller who holds the oversight permissions.
+
+    The knowledge base -- corpus-wide search and the equipment graph -- is
+    restricted to ADMIN and SECURITY_ADMIN, so the tests that exercise it as a
+    surface sign in as an administrator. A worker reaching it through an
+    approved access request is covered separately.
+    """
+    user, password = make_user(roles=["ADMIN"])
+    response = client.post(
+        "/api/v1/auth/login", json={"email": user.email, "password": password}
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}

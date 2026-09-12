@@ -25,6 +25,7 @@ from app.artifacts.content import APPROVAL_NOTE_SCHEMA, ApprovalNoteContent
 from app.knowledge.embeddings import run_sync
 from app.models.service import model_service
 from app.routing.model_router import TaskRequirements
+from app.security import injection
 
 logger = logging.getLogger("workbench.planner")
 
@@ -408,10 +409,22 @@ def draft_approval_note(
 def _build_prompt(request: str, evidence: list[dict], document_text: str) -> str:
     parts = [f"Request:\n{request}\n"]
 
+    # Everything below is other people's words. Fencing it and saying so does
+    # not make prompt injection impossible -- nothing does -- but it gives the
+    # model a boundary to reason about instead of one undifferentiated wall of
+    # text, and it is what lets it report an instruction rather than obey one.
+    evidence_text = "\n".join(str(item.get("text", "")) for item in evidence)
+    findings = injection.scan(document_text) + injection.scan(evidence_text)
+    parts.append(injection.DATA_NOTICE)
+    warning = injection.notice_for(findings)
+    if warning:
+        parts.append(warning)
+
     if document_text.strip():
         # Bounded: the attached report and the retrieved passages both have to
         # fit alongside the answer in a 4k-8k window.
-        parts.append(f"Attached document extract:\n{document_text[:6000]}\n")
+        extract = injection.fence(document_text[:6000])
+        parts.append(f"Attached document extract:\n{extract}\n")
 
     if evidence:
         passages = "\n\n".join(
