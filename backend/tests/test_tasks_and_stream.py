@@ -38,7 +38,14 @@ def test_task_reaches_a_terminal_status(client, auth_headers):
     """
     task_id = _create_task(client, auth_headers).json()["id"]
 
-    deadline = time.time() + 5
+    # Generous on purpose. This runs the real orchestrator, so once the model
+    # registry has been populated by an earlier module the run makes genuine
+    # model calls and takes around twenty seconds -- while the same test in
+    # isolation fails routing and settles at once. A five-second budget passed
+    # or failed depending on which other modules had run first. What is being
+    # asserted is that the lifecycle reaches a terminal state, never that it is
+    # quick, so the budget covers the slow path with room to spare.
+    deadline = time.time() + 60
     status = "pending"
     while time.time() < deadline:
         status = client.get(f"/api/v1/tasks/{task_id}", headers=auth_headers).json()[
