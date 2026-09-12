@@ -132,10 +132,14 @@ def analyse_inputs(state: TaskState) -> dict:
     extracts: list[dict] = []
     classification = state.get("classification", "INTERNAL")
 
+    unreadable: list[str] = []
+
     for file_id in state.get("input_files") or []:
         result = gateway.call("file.read", {"file_id": file_id}, context)
         if not result.ok:
             extracts.append({"file_id": file_id, "error": result.error})
+            unreadable.append(result.error or "could not be read")
+            logger.warning("attached file %s unreadable: %s", file_id, result.error)
             continue
 
         level = result.data.get("classification", "INTERNAL")
@@ -144,24 +148,44 @@ def analyse_inputs(state: TaskState) -> dict:
         ):
             classification = level
 
+        text = result.data.get("text", "")
+        filename = result.data.get("filename", "")
+        if not text.strip():
+            # Ingested, but nothing came out of it -- an image whose OCR found
+            # no characters and which no vision model described. Treated as
+            # unreadable rather than as an empty document, because the
+            # difference decides whether the answer should mention it.
+            unreadable.append(f"{filename} produced no readable text")
+
         extracts.append(
             {
                 "file_id": file_id,
-                "filename": result.data.get("filename", ""),
+                "filename": filename,
                 "pages": result.data.get("pages", 0),
-                "text": result.data.get("text", ""),
+                "text": text,
             }
         )
 
     _emit(
         state,
         "inputs_analysed",
-        {"documents": len(extracts), "classification": classification},
+        {
+            "documents": len(extracts),
+            "classification": classification,
+            "unreadable": unreadable,
+        },
     )
     return {
         "classification": classification,
+        "unreadable_inputs": unreadable,
         "intermediate_results": [{"input_extracts": extracts}],
-        "steps": [step("analyse_inputs", documents=len(extracts))],
+        "steps": [
+            step(
+                "analyse_inputs",
+                documents=len(extracts),
+                unreadable=len(unreadable),
+            )
+        ],
     }
 
 
@@ -452,6 +476,19 @@ def reason(state: TaskState) -> dict:
     if computation.get("stdout"):
         document_text = (
             f"--- computed in the sandbox ---\n{computation['stdout']}\n\n"
+            f"{document_text}"
+        ).strip()
+
+    # An attachment that could not be read is stated, not omitted. Left out,
+    # the model has no way to tell "nothing was attached" from "something was
+    # attached and I cannot see it", and confidently answers the first.
+    unreadable = state.get("unreadable_inputs") or []
+    if unreadable:
+        notice = "\n".join(f"- {reason}" for reason in unreadable)
+        document_text = (
+            f"--- attachments that could not be read ---\n{notice}\n"
+            "Say plainly that these could not be read. Do not describe or "
+            "guess at their contents.\n\n"
             f"{document_text}"
         ).strip()
 

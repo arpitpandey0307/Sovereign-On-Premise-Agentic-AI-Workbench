@@ -9,6 +9,8 @@ not part of this task.
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import ClassVar
 from uuid import UUID
 
@@ -18,9 +20,24 @@ from app.db.repositories.files import FileRepository
 from app.tools import workspace
 from app.tools.base import ToolContext, ToolResult
 
+logger = logging.getLogger("workbench.tools.file")
+
 # Read-back is capped well below the workspace limit: this text usually ends
 # up in a model's context window, and a megabyte of it would not fit.
 MAX_TEXT_CHARS = 40_000
+
+# Uploading hands ingestion to a background task so the upload response does
+# not block on OCR and a vision pass. A user who attaches a file and sends the
+# turn immediately therefore arrives here while that work is still running --
+# routinely, because attaching and sending is one gesture in the UI.
+#
+# Failing on arrival made the attachment silently invisible: the run continued
+# with no text, and the model answered as though nothing had been attached.
+# Waiting is the honest behaviour. The ceiling is generous because a scanned
+# drawing needs OCR and a vision model, and the alternative to waiting is
+# answering the wrong question.
+INGESTION_WAIT_SECONDS = 45.0
+INGESTION_POLL_SECONDS = 0.25
 
 
 class FileReadTool:
@@ -76,6 +93,8 @@ class FileReadTool:
                 "That file is not one of this task's inputs."
             )
 
+        status = _await_ingestion(wanted)
+
         with SessionLocal() as db:
             record = FileRepository(db).get(wanted)
             if record is None:
@@ -83,10 +102,20 @@ class FileReadTool:
 
             document = DocumentRepository(db).get_by_file(wanted)
             if document is None:
-                return ToolResult.failed(
-                    f"{record.filename} has not been ingested yet, so it has "
-                    "no extracted text to read."
-                )
+                # Say which of the three it is. "Not ingested" covers a file
+                # that failed, one still working and one that was never
+                # queued, and the operator's next step differs for each.
+                if status == "failed":
+                    detail = "could not be ingested, so it has no readable text"
+                elif status == "pending":
+                    detail = (
+                        f"was still being processed after "
+                        f"{INGESTION_WAIT_SECONDS:.0f}s, so its text is not "
+                        "available yet"
+                    )
+                else:
+                    detail = "has no extracted text to read"
+                return ToolResult.failed(f"{record.filename} {detail}.")
 
             pages = DocumentRepository(db).pages(document.id)
             body = "\n\n".join(
@@ -155,6 +184,36 @@ class FileListTool:
         return ToolResult(
             ok=True, data={"files": files}, detail=f"{len(files)} file(s)"
         )
+
+
+def _await_ingestion(file_id: UUID) -> str:
+    """Block until the file's ingestion settles, or the ceiling is reached.
+
+    Returns the last status seen, so the caller can say *why* there is no text
+    rather than only that there is none. A fresh session per poll on purpose:
+    ingestion commits from another thread, and a session that read the row
+    once would keep handing back the same cached "pending" forever.
+    """
+    deadline = time.monotonic() + INGESTION_WAIT_SECONDS
+    status = "pending"
+    waited = False
+
+    while True:
+        with SessionLocal() as db:
+            record = FileRepository(db).get(file_id)
+            if record is None:
+                return "missing"
+            status = record.ingestion_status or "pending"
+
+        if status != "pending" or time.monotonic() >= deadline:
+            break
+
+        waited = True
+        time.sleep(INGESTION_POLL_SECONDS)
+
+    if waited:
+        logger.info("waited for ingestion of %s, settled as %s", file_id, status)
+    return status
 
 
 def _cap(text: str) -> str:

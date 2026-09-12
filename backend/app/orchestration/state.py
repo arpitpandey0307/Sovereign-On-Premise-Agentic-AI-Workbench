@@ -42,6 +42,11 @@ class TaskState(TypedDict, total=False):
 
     # --- what execution produced ---
     retrieved_sources: list[dict]
+    # Attachments that could not be turned into text, each with the reason.
+    # Carried through to the answer: an assistant that ignores a file it was
+    # handed and answers anyway is worse than one that says it could not read
+    # it, because only the second is correctable by the person who attached it.
+    unreadable_inputs: list[str]
     # Prose the assistant wrote back. Set on the conversational path, where
     # there is no artifact and the answer *is* the deliverable.
     answer: str
