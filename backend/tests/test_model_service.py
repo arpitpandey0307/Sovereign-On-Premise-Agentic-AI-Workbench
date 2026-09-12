@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 
 from app.db.models.model_registry import ModelRecord
-from app.models.base import ModelRequest, ModelResponse, ProviderError
+from app.models.base import (
+    ModelRequest,
+    ModelResponse,
+    ModelUnavailableError,
+    ProviderError,
+)
 from app.models.registry import ModelRegistry
 from app.models.service import ModelService
 from app.routing.hardware import GpuState, hardware
@@ -20,13 +25,24 @@ from app.routing.model_router import TaskRequirements
 class FakeProvider:
     name = "ollama"
 
-    def __init__(self, *, fail_for: set[str] | None = None, text: str = "ok") -> None:
+    def __init__(
+        self,
+        *,
+        fail_for: set[str] | None = None,
+        unavailable_for: set[str] | None = None,
+        text: str = "ok",
+    ) -> None:
         self.fail_for = fail_for or set()
+        self.unavailable_for = unavailable_for or set()
         self.text = text
         self.calls: list[str] = []
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
         self.calls.append(request.model_id)
+        if request.model_id in self.unavailable_for:
+            raise ModelUnavailableError(
+                "not pulled locally", model_id=request.model_id
+            )
         if request.model_id in self.fail_for:
             raise ProviderError("simulated failure", model_id=request.model_id)
         structured = None
@@ -136,13 +152,38 @@ async def test_a_failing_model_falls_back_to_the_next_candidate(registry_db, ser
     assert outcome.model_used == "backup"
     assert provider.calls == ["alpha:1b", "beta:1b"]
 
-    # The failure is recorded, and the model is marked unavailable so the next
-    # routing decision does not pick it again while it is broken.
+    # The failure is recorded, so reliability scoring penalises the model and
+    # the router prefers the alternative next time. It stays registered,
+    # though: a retryable failure is not evidence that the model is broken,
+    # and taking it out of the registry is a decision nothing ever reverses.
     registry = ModelRegistry(registry_db)
     assert registry.stat("primary", "review").failures == 1
-    assert registry.get("primary").status == "unavailable"
+    assert registry.get("primary").status == "ready"
 
     assert [attempt["ok"] for attempt in outcome.attempts] == [False, True]
+
+
+@pytest.mark.anyio
+async def test_a_model_that_cannot_serve_is_taken_out_of_the_registry(
+    registry_db, service
+):
+    """The other half of the rule: a real unavailability does disable it.
+
+    A timeout says the call was slow. A ModelUnavailableError says the runtime
+    is up and this model is not there -- nothing is gained by routing to it
+    again, so it leaves the registry until a refresh finds it.
+    """
+    _model(registry_db, "missing", "gone:1b", benchmark_score=0.95)
+    _model(registry_db, "backup", "beta:1b", benchmark_score=0.60)
+    service._providers = {"ollama": FakeProvider(unavailable_for={"gone:1b"})}
+
+    outcome = await service.generate(
+        registry_db, TaskRequirements(task_type="review"), prompt="hello"
+    )
+
+    assert outcome.succeeded
+    assert outcome.model_used == "backup"
+    assert ModelRegistry(registry_db).get("missing").status == "unavailable"
 
 
 @pytest.mark.anyio

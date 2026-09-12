@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 
 import pytest
+from sqlalchemy import select
 
 from app.documents import vision
 from app.documents.ingestion import VISION_MARKER, _combined
@@ -99,6 +100,17 @@ def test_ingestion_records_that_vision_was_unavailable(client, auth_headers, db)
         b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
         b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
+    # State the premise instead of inheriting it. The session database is
+    # shared across modules, so whether a vision model is registered here
+    # depended on which other module had run first -- and with one present the
+    # pass is not skipped at all, so the assertion below was testing the test
+    # order rather than the behaviour.
+    from app.db.models.model_registry import ModelRecord
+
+    for record in db.scalars(select(ModelRecord).where(ModelRecord.type == "vision")):
+        record.status = "unavailable"
+    db.commit()
+
     upload = client.post(
         "/api/v1/files/upload",
         headers=auth_headers,

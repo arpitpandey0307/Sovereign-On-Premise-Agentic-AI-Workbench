@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     minio_access_key: str = ""
     minio_secret_key: str = ""
     minio_secure: bool = False
+    # How long a single model call may take before it is abandoned. Vision
+    # gets its own, larger budget: it is usually the cold model, so its first
+    # call pays for evicting the resident reasoner and loading itself.
+    model_timeout_s: int = 120
+    vision_timeout_s: int = 300
+
     max_upload_size_mb: int = 100
 
     # OCR engine (Part 03). Empty means "find it on PATH"; set it

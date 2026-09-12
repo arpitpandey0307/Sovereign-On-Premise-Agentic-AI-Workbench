@@ -51,6 +51,14 @@ logger = logging.getLogger("workbench.router")
 # request may fall back to a reasoner, which writes worse Python but does write
 # it. Reranking falls back by re-routing explicitly in Part 03 rather than here,
 # because the fallback path scores through a different interface.
+# Types that can never answer a prompt. They are models in the registry and
+# legitimate targets when asked for by name, but an embedding model handed a
+# question returns a vector, not a sentence.
+NON_GENERATIVE = frozenset({"embedding", "reranking"})
+
+# What an untyped request gets when a model of this type is usable.
+DEFAULT_TYPE = "reasoning"
+
 SUBSTITUTES: dict[str, list[str]] = {
     "reasoning": [],
     "vision": [],
@@ -330,7 +338,43 @@ class ModelRouter:
         """
         wanted = requirements.resolved_model_type()
         if not wanted:
-            return records
+            # A caller that names no type is asking for anything that can hold
+            # a conversation -- which is not literally anything. An embedding
+            # model is small and fast, so on resource efficiency and latency
+            # it out-scores every reasoner, and an untyped chat turn was being
+            # answered by the model that turns text into vectors.
+            survivors = []
+            for record in records:
+                if record.type in NON_GENERATIVE:
+                    decision.rejections.append(
+                        Rejection(
+                            record.id,
+                            "type",
+                            f"a {record.type} model cannot answer a prompt",
+                        )
+                    )
+                else:
+                    survivors.append(record)
+
+            # Among what is left, a reasoner is the default. The vision and
+            # coding models are specialists kept for work that asks for them;
+            # both are smaller than the reasoner, so on resource efficiency
+            # and latency they would otherwise win an ordinary question. A
+            # request that did not ask for a specialist should not get one.
+            general = [r for r in survivors if r.type == DEFAULT_TYPE]
+            if general:
+                for record in survivors:
+                    if record.type != DEFAULT_TYPE:
+                        decision.rejections.append(
+                            Rejection(
+                                record.id,
+                                "type",
+                                f"a {record.type} model is a specialist; the "
+                                "request asked for no speciality",
+                            )
+                        )
+                return general
+            return survivors
 
         def keep(kind: str, reason: str) -> list[ModelRecord]:
             for record in records:

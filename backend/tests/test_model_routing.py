@@ -298,13 +298,19 @@ def test_an_unreadable_gpu_probe_does_not_reject_every_model(clean_registry):
 # --- effort has to change the answer --------------------------------------
 
 
-def test_effort_changes_which_model_is_chosen(clean_registry):
+def test_effort_changes_which_model_is_chosen(clean_registry, gpu_8gb):
     """Low picks the small model, high picks the large one.
 
     Sized against a fixed 24 GB ceiling, every model on an 8 GB card scored in
     the bottom quarter and the spread between them was a few hundredths -- so
     the control made no difference to what the operator got, which is worse
     than not offering it. Sizing is relative to the field.
+
+    The hardware is stated rather than probed. Reading the real card made this
+    test depend on what the local runtime happened to be holding: load a vision
+    model outside the suite and the 6.5 GB candidate no longer fits, so high
+    effort silently fell back to the small model and the test failed for a
+    reason that had nothing to do with effort.
     """
     from app.routing.model_router import ModelRouter, TaskRequirements
 
@@ -315,11 +321,16 @@ def test_effort_changes_which_model_is_chosen(clean_registry):
         vram_required_gb=1.4,
         benchmark_score=0.62,
     )
+    # 4.5 GB, not 6.5. An 8 GB card leaves 6.1 GB usable once CUDA overhead
+    # and KV headroom are reserved, so the old figure fitted only by a margin
+    # of about sixty megabytes on one particular machine -- and not at all
+    # once anything else was resident. Effort is what this test is about; the
+    # candidates both have to fit for it to be measuring that.
     _model(
         clean_registry,
         id="large",
         model_identifier="large:8b",
-        vram_required_gb=6.5,
+        vram_required_gb=4.5,
         benchmark_score=0.80,
     )
 

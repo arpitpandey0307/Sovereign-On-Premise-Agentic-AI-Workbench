@@ -20,7 +20,13 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.base import ModelProvider, ModelRequest, ModelResponse, ProviderError
+from app.models.base import (
+    ModelProvider,
+    ModelRequest,
+    ModelResponse,
+    ModelUnavailableError,
+    ProviderError,
+)
 from app.models.ollama import OllamaProvider
 from app.models.registry import ModelRegistry, to_descriptor
 from app.models.vllm import VLLMProvider
@@ -205,6 +211,7 @@ class ModelService:
                 images=images or [],
                 max_tokens=max_tokens,
                 response_schema=response_schema,
+                timeout_s=_deadline_for(record),
             )
 
             try:
@@ -212,9 +219,31 @@ class ModelService:
             except ProviderError as exc:
                 last_error = str(exc)
                 self._record_failure(db, model_id, requirements.task_type, str(exc))
-                registry.set_status(model_id, "unavailable", str(exc))
+
+                # Only a failure that says the model genuinely cannot serve
+                # takes it out of the registry. A timeout does not: the first
+                # call to a cold model has to evict whatever is resident and
+                # load several gigabytes, and on a contended card that can
+                # outrun the deadline while the model itself is perfectly
+                # fine. Marking it unavailable there is self-inflicted -- the
+                # status is sticky, nothing re-probes it, and the capability
+                # stays dead until a human refreshes the registry. That is
+                # exactly how vision stopped working: one slow first call.
+                #
+                # The failure is still recorded above, so reliability scoring
+                # penalises a model that keeps timing out, and the router
+                # moves on to the next candidate either way.
+                if isinstance(exc, ModelUnavailableError) or not exc.retryable:
+                    registry.set_status(model_id, "unavailable", str(exc))
+                    logger.warning("model %s marked unavailable: %s", model_id, exc)
+                else:
+                    logger.warning(
+                        "model %s failed but stays registered, falling back: %s",
+                        model_id,
+                        exc,
+                    )
+
                 attempts.append({"model_id": model_id, "ok": False, "error": str(exc)})
-                logger.warning("model %s failed, falling back: %s", model_id, exc)
                 continue
 
             self._record_success(
@@ -306,3 +335,20 @@ def _ewma(current: float, sample: float) -> float:
 
 
 model_service = ModelService()
+
+
+def _deadline_for(record) -> float:
+    """How long this model is given before the call is abandoned.
+
+    A vision model gets longer because it is the one most likely to be cold.
+    It is not the model the assistant reaches for on a normal turn, so by the
+    time a drawing arrives the reasoner is usually resident and the runtime
+    has to evict it and load several gigabytes before a single token appears.
+    Reading an image is also slower per token than reading text.
+
+    The old flat deadline was generous for text and too tight for exactly the
+    case the product is built to show off.
+    """
+    if record.type == "vision":
+        return float(settings.vision_timeout_s)
+    return float(settings.model_timeout_s)
