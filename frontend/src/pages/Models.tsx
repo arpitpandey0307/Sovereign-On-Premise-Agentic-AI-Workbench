@@ -159,10 +159,14 @@ function RoutingPlayground() {
 
   function run(event: FormEvent) {
     event.preventDefault();
+    // `needs_vision` is the field the router reads. This used to send a
+    // `requirements` array, which the endpoint's schema has no field for, so
+    // the toggle was discarded on arrival and the playground answered every
+    // question as though vision had never been asked for.
     preview.mutate({
       task_type: taskType,
       classification,
-      requirements: needsVision ? ["vision"] : [],
+      needs_vision: needsVision,
     });
   }
 

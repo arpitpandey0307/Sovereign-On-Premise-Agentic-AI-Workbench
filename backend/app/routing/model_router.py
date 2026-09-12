@@ -1,14 +1,16 @@
 """The model router.
 
-Three stages, in this order, and the order is the point:
+Four stages, in this order, and the order is the point:
 
-    capability filter  ->  policy filter (Part 05)  ->  hardware fit  ->  score
+    capability  ->  policy (Part 05)  ->  hardware fit  ->  model type  ->  score
 
 Capability first because a model that cannot do the job is not a candidate at
 any price. Security second because a model that is not cleared for the data is
 not a candidate however good it is -- quality never overrides classification.
 Hardware third because a model that will not load is not a candidate either.
-Only what survives all three gets ranked.
+Type last, because "is a model of the right kind actually usable" can only be
+answered once the unusable ones are gone. Only what survives all four gets
+ranked.
 
 Every decision carries its rationale: which models were considered, why each
 was excluded, the full score breakdown for the survivors, and a fallback chain
@@ -31,6 +33,31 @@ from app.routing.scoring import ScoreCard, score_model
 from app.schemas.shared import ModelDescriptor
 
 logger = logging.getLogger("workbench.router")
+
+# Which model types may stand in for which, in preference order. A request for
+# a type is served by that type; this names the only permitted substitutions,
+# and they are used solely when no usable model of the asked-for type survives
+# the earlier filters.
+#
+# The point of stating them is that the alternative -- letting the score decide
+# -- does not work. A vision model is smaller and faster than the reasoner, so
+# on resource efficiency, latency and low effort it out-scores the model that
+# is actually built for the job, and a chat turn gets answered by the model
+# meant for reading drawings. Capability overlap makes it worse: a vision model
+# listing "reasoning" is claiming it can reason *about an image*, not that it
+# is a general reasoner.
+#
+# ``reasoning`` and ``vision`` therefore have no substitutes at all. A coding
+# request may fall back to a reasoner, which writes worse Python but does write
+# it. Reranking falls back by re-routing explicitly in Part 03 rather than here,
+# because the fallback path scores through a different interface.
+SUBSTITUTES: dict[str, list[str]] = {
+    "reasoning": [],
+    "vision": [],
+    "coding": ["reasoning"],
+    "embedding": [],
+    "reranking": [],
+}
 
 
 class TaskRequirements(BaseModel):
@@ -88,6 +115,9 @@ class RoutingDecision:
     rejections: list[Rejection] = field(default_factory=list)
     fallbacks: list[str] = field(default_factory=list)
     considered: int = 0
+    # Set when no model of the requested type was usable and a permitted
+    # stand-in was taken instead: ``(asked_for, used_instead)``.
+    substituted: tuple[str, str] | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -106,7 +136,13 @@ class RoutingDecision:
             second = self.scorecards[1]
             margin = self.scorecards[0].total - second.total
             runner_up = f"; chosen over {second.model_id} by {margin:.3f}"
-        return f"Selected {self.selected.name}{detail}{runner_up}"
+        stand_in = ""
+        if self.substituted:
+            asked, used = self.substituted
+            stand_in = (
+                f"; no {asked} model was usable, so a {used} model stood in"
+            )
+        return f"Selected {self.selected.name}{detail}{runner_up}{stand_in}"
 
     @property
     def failure_reason(self) -> str:
@@ -140,6 +176,11 @@ class RoutingDecision:
                 "pressure": round(self.gpu.pressure, 2),
             },
             "considered": self.considered,
+            "substituted": (
+                {"asked_for": self.substituted[0], "used": self.substituted[1]}
+                if self.substituted
+                else None
+            ),
             "ranked": [card.as_dict() for card in self.scorecards],
             "rejected": [
                 {"model_id": r.model_id, "stage": r.stage, "reason": r.reason}
@@ -172,6 +213,7 @@ class ModelRouter:
         candidates = self._stage_capability(candidates, requirements, decision)
         candidates = self._stage_policy(candidates, requirements, decision)
         candidates = self._stage_hardware(candidates, gpu, decision)
+        candidates = self._stage_type(candidates, requirements, decision)
 
         if not candidates:
             logger.warning("routing failed: %s", decision.failure_reason)
@@ -222,7 +264,6 @@ class ModelRouter:
         decision: RoutingDecision,
     ) -> list[ModelRecord]:
         required = requirements.resolved_required()
-        wanted_type = requirements.resolved_model_type()
         survivors = []
 
         for record in records:
@@ -255,14 +296,6 @@ class ModelRouter:
                 )
                 continue
 
-            # An embedding model is never a substitute for a generative one.
-            is_embedding = record.type == "embedding"
-            if wanted_type and is_embedding and wanted_type != "embedding":
-                decision.rejections.append(
-                    Rejection(record.id, "capability", "embedding model, not generative")
-                )
-                continue
-
             if requirements.estimated_context_tokens > record.context_length:
                 decision.rejections.append(
                     Rejection(
@@ -277,6 +310,59 @@ class ModelRouter:
             survivors.append(record)
 
         return survivors
+
+    def _stage_type(
+        self,
+        records: list[ModelRecord],
+        requirements: TaskRequirements,
+        decision: RoutingDecision,
+    ) -> list[ModelRecord]:
+        """Keep only models of the type the caller asked for.
+
+        This runs after the hardware stage on purpose. The question it answers
+        is not "does a reasoning model exist" but "is one of them actually
+        usable", and that cannot be known until the models that will not load
+        have been removed. Only when the answer is no does a permitted
+        stand-in from ``SUBSTITUTES`` get a turn.
+
+        A caller that names no type is asking for anything, and everything
+        stays in the running.
+        """
+        wanted = requirements.resolved_model_type()
+        if not wanted:
+            return records
+
+        def keep(kind: str, reason: str) -> list[ModelRecord]:
+            for record in records:
+                if record.type != kind:
+                    decision.rejections.append(Rejection(record.id, "type", reason))
+            return [record for record in records if record.type == kind]
+
+        exact = [record for record in records if record.type == wanted]
+        if exact:
+            return keep(wanted, f"not a {wanted} model, and a {wanted} model is usable")
+
+        for substitute in SUBSTITUTES.get(wanted, []):
+            if any(record.type == substitute for record in records):
+                decision.substituted = (wanted, substitute)
+                logger.info(
+                    "no usable %s model; substituting a %s model", wanted, substitute
+                )
+                return keep(
+                    substitute,
+                    f"not a {substitute} model, the permitted stand-in for "
+                    f"an unavailable {wanted} model",
+                )
+
+        for record in records:
+            decision.rejections.append(
+                Rejection(
+                    record.id,
+                    "type",
+                    f"a {record.type} model cannot stand in for a {wanted} model",
+                )
+            )
+        return []
 
     def _stage_policy(
         self,

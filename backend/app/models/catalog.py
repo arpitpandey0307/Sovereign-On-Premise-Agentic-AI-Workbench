@@ -61,7 +61,17 @@ _EIGHT_GB: list[CatalogEntry] = [
         "provider": "ollama",
         "model_identifier": "gemma3:4b",
         "type": "vision",
-        "capabilities": ["vision", "ocr_postprocess", "summarisation", "reasoning"],
+        # "visual_reasoning", not "reasoning". This model reasons about what it
+        # can see; it is not a general reasoner. Listing the generic capability
+        # here let it satisfy a chat turn's requirements, and being smaller and
+        # faster than the 8B it then won the scoring -- so the assistant
+        # answered ordinary questions with the model kept for reading drawings.
+        "capabilities": [
+            "vision",
+            "ocr_postprocess",
+            "summarisation",
+            "visual_reasoning",
+        ],
         "context_length": 8192,
         "quantization": "Q4_K_M",
         "vram_required_gb": 3.0,
@@ -154,7 +164,12 @@ _SIX_GB: list[CatalogEntry] = [
         "provider": "ollama",
         "model_identifier": "gemma3:4b",
         "type": "vision",
-        "capabilities": ["vision", "ocr_postprocess", "summarisation", "reasoning"],
+        "capabilities": [
+            "vision",
+            "ocr_postprocess",
+            "summarisation",
+            "visual_reasoning",
+        ],
         "context_length": 4096,
         "quantization": "Q4_K_M",
         "vram_required_gb": 3.0,

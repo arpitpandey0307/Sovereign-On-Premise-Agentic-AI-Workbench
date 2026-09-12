@@ -81,8 +81,21 @@ class ScoreCard:
 def _task_accuracy(record: ModelRecord, requirements) -> FactorScore:
     value = record.benchmark_score
 
+    # Read the type the same way the router's filter does, so a request that
+    # implies vision rather than naming it is scored against vision here too.
+    # The two disagreeing is how a model ends up filtered in on one definition
+    # and scored on another.
+    wanted = (
+        requirements.resolved_model_type()
+        if hasattr(requirements, "resolved_model_type")
+        else requirements.model_type
+    )
+
     # A model built for the job beats a generalist that merely tolerates it.
-    if requirements.model_type and record.type == requirements.model_type:
+    # By the time scoring runs the type filter has usually settled this, so
+    # the adjustment mostly separates candidates on an untyped request -- it
+    # is not load-bearing for keeping the wrong kind of model out.
+    if wanted and record.type == wanted:
         value = min(1.0, value + 0.08)
         note = (
             f"purpose-built {record.type} model "
@@ -91,7 +104,7 @@ def _task_accuracy(record: ModelRecord, requirements) -> FactorScore:
     else:
         value = max(0.0, value - 0.10)
         note = (
-            f"{record.type} model handling a {requirements.model_type or 'general'} "
+            f"{record.type} model handling a {wanted or 'general'} "
             f"task (benchmark {record.benchmark_score:.2f})"
         )
 
