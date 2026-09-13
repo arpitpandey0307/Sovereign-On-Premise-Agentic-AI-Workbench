@@ -18,6 +18,7 @@ import { Knowledge } from "@/pages/Knowledge";
 import { AuthProvider } from "@/lib/auth";
 import { tokenStore } from "@/lib/api";
 import { permissionsFor } from "@/test/roles";
+import type { Role } from "@/lib/types";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -54,7 +55,7 @@ const DENIED_BODY = {
 };
 
 interface Options {
-  roles?: string[];
+  roles?: Role[];
   mine?: unknown[];
   queue?: unknown[];
   searchStatus?: number;
@@ -62,7 +63,7 @@ interface Options {
 }
 
 function stub({
-  roles = ["ENGINEER"],
+  roles = ["ENGINEER"] as Role[],
   mine = [],
   queue = [],
   searchStatus = 403,
