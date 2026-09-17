@@ -7,16 +7,20 @@ interfaces in `app/integrations/ports.py`.
 
 | Part | Folder | Status |
 |---|---|---|
-| 01 Foundation — API, auth, conversations, tasks, files | `app/api`, `app/core`, `app/db` | complete |
-| 02 Model layer & routing | `app/models`, `app/routing` | complete |
-| 03 Documents & knowledge (Neo4j RAG) | `app/documents`, `app/knowledge` | stubbed |
-| 04 Orchestration, tools, sandbox | `app/orchestration`, `app/tools` | stubbed |
-| 05 Security, policy, audit | `app/security`, `app/audit` | stubbed |
+| 01 Foundation — API, auth, conversations, tasks, files | `app/api`, `app/core`, `app/db` | live |
+| 02 Model layer & routing | `app/models`, `app/routing` | live |
+| 03 Documents & knowledge (Neo4j RAG) | `app/documents`, `app/knowledge` | live |
+| 04 Orchestration, tools, sandbox | `app/orchestration`, `app/tools`, `app/sandbox` | live |
+| 05 Security, policy, audit | `app/security`, `app/audit` | live |
 
-`GET /health` is a bare public liveness probe. The detailed picture — which
-parts are placeholders, whether the model runtime answers, how many event
-buffers are retained — is behind auth on `GET /api/v1/system/status`, for
-`ADMIN` and `SECURITY_ADMIN`.
+`GET /health` is a bare public liveness probe. The detailed picture — whether
+each port is served by its real implementation or a placeholder, whether the
+model runtime answers, how many event buffers are retained — is behind auth on
+`GET /api/v1/system/status`, for `ADMIN` and `SECURITY_ADMIN`. It currently
+reports all five parts `live`.
+
+369 tests passing · `ruff check` clean · 7 Alembic migrations that apply in
+order, reverse to base, and autogenerate empty against the models.
 
 ## Running locally
 
