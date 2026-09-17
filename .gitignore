@@ -1,6 +1,8 @@
 # Local-only planning and agent context. Never committed.
 context-backend/
 frontend context/
+# The pre-code decision document for features that are not built yet.
+ADDITIONAL_FEATURES.md
 # ...including the archives they were unpacked from.
 context-backend.zip
 frontend context.zip
@@ -71,3 +73,9 @@ dataset corpus/
 artifacts/
 uploads/
 data/
+
+# Presentation decks, exported slides and the scripts that build them, plus
+# any other personal material kept beside the project. None of it is part of
+# the application, so it stays on the machine that made it. Anchored to the
+# repository root so nothing inside the source tree is caught by accident.
+/local-only/
