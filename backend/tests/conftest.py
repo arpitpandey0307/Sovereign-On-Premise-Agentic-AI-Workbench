@@ -22,6 +22,15 @@ os.environ["STORAGE_ROOT"] = (_tmp / "storage").as_posix()
 os.environ["JWT_SECRET_KEY"] = "test-secret-" + "x" * 40
 os.environ["SEED_DEMO_USER"] = "false"
 os.environ["REFRESH_MODEL_REGISTRY_ON_STARTUP"] = "false"
+# Pointed at a port nothing serves, for the same reason NEO4J_PASSWORD is
+# pinned empty below. Disabling the startup refresh is not enough on its own:
+# an admin test calls /internal/models/refresh, which reconciles against
+# whatever the local daemon has pulled, and the registry is shared by the
+# whole session. On a machine holding the catalogue models the reranker then
+# made a real generation call and returned "model_scored" where the test
+# expects "lexical" -- passing or failing on how the live model happened to
+# answer. Tests that need a model supply a fake one.
+os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:11435"
 # Pinned rather than inherited: a developer enabling docs locally must not
 # change what the suite exercises.
 os.environ["ENABLE_API_DOCS"] = "false"
@@ -41,6 +50,16 @@ from fastapi.testclient import TestClient
 from app.db.database import Base, SessionLocal, engine
 from app.db.repositories.users import UserRepository
 from app.main import app
+from app.security import port as security_port
+
+# The real policy engine, exactly as main.py's lifespan installs it. The port
+# registry is process-wide, and without this the placeholder that denies
+# everything is still in place for any test that never opens a TestClient --
+# so the routing tests passed only when an API test happened to run first and
+# swap it in. Installing here makes every module match production wiring
+# whether it is run alone or with the rest of the suite. Network monitoring
+# stays off for the reason given above.
+security_port.install(monitor_network=False)
 
 
 @pytest.fixture
