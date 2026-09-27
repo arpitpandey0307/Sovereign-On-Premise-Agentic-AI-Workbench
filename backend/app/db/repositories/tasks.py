@@ -93,6 +93,32 @@ class TaskRepository:
         self.db.refresh(task)
         return task
 
+    def fail_unfinished(self, *, reason: str) -> list[Task]:
+        """Close out tasks a previous process left mid-flight.
+
+        Execution lives in this process: the orchestrator's asyncio task, its
+        event buffer and its in-memory state all die with it. A task still in a
+        non-terminal state when the process stops is therefore never going to
+        advance, but the record says ``running``, so the task list shows it
+        spinning forever and its event stream stays open with nothing to send.
+        Marking these failed at startup is the honest reading -- the work did
+        not finish -- and it tells the person why rather than leaving them to
+        wait on it.
+
+        This assumes one process owns execution, which is what the monolith
+        does: a second worker starting up would fail the first one's live
+        tasks. Scaling out means moving execution to a queue with a heartbeat
+        before calling this on startup.
+        """
+        stmt = select(Task).where(Task.status.notin_(tuple(TERMINAL_STATUSES)))
+        orphaned = list(self.db.scalars(stmt))
+        for task in orphaned:
+            task.status = "failed"
+            task.error_message = reason
+        if orphaned:
+            self.db.commit()
+        return orphaned
+
     def add_step(self, task_id: UUID, step_name: str) -> TaskStep:
         step = TaskStep(task_id=task_id, step_name=step_name)
         self.db.add(step)

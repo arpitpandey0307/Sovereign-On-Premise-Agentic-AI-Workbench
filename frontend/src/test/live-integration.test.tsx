@@ -94,7 +94,7 @@ async function settles() {
 
 live("every screen against a live backend", () => {
   let taskId: string | null = null;
-  let completedTaskId: string | null = null;
+  let citedTaskId: string | null = null;
   let token = "";
 
   // The shared setup file clears sessionStorage after every test, so the token
@@ -118,9 +118,27 @@ live("every screen against a live backend", () => {
       headers: { Authorization: `Bearer ${body.access_token}` },
     });
     const page = (await tasks.json()) as { items: Array<{ task_id: string; status: string }> };
-    completedTaskId = page.items.find((t) => t.status === "completed")?.task_id ?? null;
-    taskId = completedTaskId ?? page.items[0]?.task_id ?? null;
-  }, 30_000);
+    const completed = page.items.filter((t) => t.status === "completed");
+    taskId = completed[0]?.task_id ?? page.items[0]?.task_id ?? null;
+
+    // The citation test needs a run that actually retrieved something. Plenty of
+    // completed runs legitimately cite nothing -- "write me a C++ sum function"
+    // never touches the corpus -- so taking the newest completed task tests
+    // whatever the last person happened to ask. Find one with sources on its
+    // execution record instead, and leave the id null if the corpus has never
+    // been searched, so the test skips rather than failing on empty data.
+    for (const candidate of completed) {
+      const execution = await fetch(`${BASE}/api/v1/tasks/${candidate.task_id}/execution`, {
+        headers: { Authorization: `Bearer ${body.access_token}` },
+      });
+      if (!execution.ok) continue;
+      const record = (await execution.json()) as { sources?: unknown[]; citations?: unknown[] };
+      if ((record.sources ?? record.citations ?? []).length > 0) {
+        citedTaskId = candidate.task_id;
+        break;
+      }
+    }
+  }, 60_000);
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -163,8 +181,8 @@ live("every screen against a live backend", () => {
    * the server mid-run, before the endpoint was changed to release its session
    * before streaming.
    */
-  it("keeps serving with more open event streams than the pool has connections", async () => {
-    if (!taskId) return;
+  it("keeps serving with more open event streams than the pool has connections", async (ctx) => {
+    if (!taskId) return ctx.skip("the backend has no tasks to stream");
 
     const controllers: AbortController[] = [];
     try {
@@ -202,10 +220,10 @@ live("every screen against a live backend", () => {
    * settles. Citations are the centre of the demo; this checks they are there
    * against real data rather than a fixture.
    */
-  it("shows the citations of a completed run reopened from its task id", async () => {
-    if (!completedTaskId) return;
+  it("shows the citations of a completed run reopened from its task id", async (ctx) => {
+    if (!citedTaskId) return ctx.skip("no completed run has cited a source yet");
     useRealFetchAgainst(BASE!);
-    mount(<Workbench />, `/workbench?task=${completedTaskId}`);
+    mount(<Workbench />, `/workbench?task=${citedTaskId}`);
 
     expect(await screen.findByText("SOURCES", {}, { timeout: 20_000 })).toBeInTheDocument();
     // The seeded corpus document the run actually retrieved.
@@ -215,8 +233,8 @@ live("every screen against a live backend", () => {
     );
   }, 45_000);
 
-  it("renders the forensic trace for a real task", async () => {
-    if (!taskId) return;
+  it("renders the forensic trace for a real task", async (ctx) => {
+    if (!taskId) return ctx.skip("the backend has no tasks to trace");
     useRealFetchAgainst(BASE!);
     mount(<TaskTrace />, `/tasks/${taskId}`);
     // The receipt's two headline facts come from the audit ledger.

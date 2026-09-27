@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     # on for local development.
     enable_api_docs: bool = False
 
+    # The built single-page app. When this folder exists the API serves it at
+    # the root, so the product is one origin and one process in the facility --
+    # no Node runtime, no second web server, nothing to get wrong about a base
+    # URL. In development Vite serves the app instead and proxies here, so the
+    # folder is absent and the mount does not happen.
+    frontend_dist: Path = Path("../frontend/dist")
+    serve_frontend: bool = True
+
     allow_external_network: bool = False
     # NoDecode: the env value is a comma-separated list, not JSON, so the
     # validator below owns the parsing.

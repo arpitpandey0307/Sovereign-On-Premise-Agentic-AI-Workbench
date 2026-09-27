@@ -19,7 +19,7 @@ model runtime answers, how many event buffers are retained — is behind auth on
 `GET /api/v1/system/status`, for `ADMIN` and `SECURITY_ADMIN`. It currently
 reports all five parts `live`.
 
-369 tests passing · `ruff check` clean · 7 Alembic migrations that apply in
+374 tests passing · `ruff check` clean · 7 Alembic migrations that apply in
 order, reverse to base, and autogenerate empty against the models.
 
 ## Running locally
@@ -38,6 +38,17 @@ uvicorn app.main:app --reload
 Interactive API docs: <http://127.0.0.1:8000/docs> — served only when
 `ENABLE_API_DOCS=true`, since the schema names every route including the
 operational ones. `.env.example` enables it for local development.
+
+Build the frontend (`cd ../frontend && npm run build`) and this process serves
+the UI too: `http://127.0.0.1:8000/` returns the app, client-side routes
+survive a reload, and the API keeps its own 404s -- one origin, one process, no
+Node runtime in the facility. Until it is built nothing is mounted, so in
+development Vite serves the app on :5173 and proxies here. `SERVE_FRONTEND=false`
+turns the mount off; `FRONTEND_DIST` moves it.
+
+A task still `running` when the process stops is abandoned -- orchestration
+lives in this process -- so startup marks those records failed and says why,
+rather than leaving the task list spinning on work nobody is doing.
 
 Uploads and generated artifacts go to the local filesystem by default, which
 needs nothing running. `STORAGE_BACKEND=minio` switches to object storage;

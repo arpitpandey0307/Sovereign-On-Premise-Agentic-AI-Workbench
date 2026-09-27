@@ -55,7 +55,7 @@ All five parts are implemented and running in one process. `GET
 
 Verified on the current commit:
 
-- **Backend** — 369 tests passing, `ruff check` clean.
+- **Backend** — 374 tests passing, `ruff check` clean.
 - **Frontend** — 176 tests passing (15 skipped: they need a live API),
   `tsc -b` clean, production build succeeds.
 - **Database** — 7 Alembic migrations apply in order and reverse to base
@@ -88,6 +88,10 @@ uvicorn app.main:app --reload
 - Tests: `pytest -q` · Lint: `ruff check app tests`
 
 Defaults to SQLite so it runs with no external services.
+
+Build the client once (`cd ../frontend && npm run build`) and this one process
+serves the whole product at <http://127.0.0.1:8000/> — the air-gapped
+deployment shape, with no Node runtime to install in the facility.
 
 ### Frontend
 
@@ -167,7 +171,7 @@ router correctly refuses to route — check `GET /internal/models/health`.
 - Permissions decide what the client *shows*, never what is *allowed*. The
   backend re-checks every call.
 
-The server-side items above are each covered by one of the 34 regression tests
+The server-side items above are each covered by one of the 52 regression tests
 in `backend/tests/test_security.py`, so a hole cannot silently reopen. Token
 storage is covered in `frontend/src/test/api.test.ts`. The compose bindings are
 configuration, not behaviour, and are not test-enforced — read

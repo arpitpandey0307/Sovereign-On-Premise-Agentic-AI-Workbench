@@ -11,8 +11,10 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import access_requests as access_api
 from app.api import knowledge as knowledge_api
@@ -20,13 +22,15 @@ from app.api import models as models_api
 from app.api import orchestration as orchestration_api
 from app.api import security as security_api
 from app.api.router import api_router
+from app.audit import events as audit_events
 from app.core.config import settings
-from app.core.dependencies import require
+from app.core.dependencies import record_audit, require
 from app.core.errors import register_exception_handlers
 from app.core.events import event_bus
 from app.core.storage import storage
 from app.db.database import SessionLocal, init_db
 from app.db.models import User
+from app.db.repositories.tasks import TaskRepository
 from app.db.repositories.users import UserRepository
 from app.documents import port as documents_port
 from app.integrations import registry
@@ -42,6 +46,34 @@ logging.basicConfig(
 logger = logging.getLogger("workbench")
 
 SystemReader = Annotated[User, Depends(require("system", "read"))]
+
+
+def _recover_orphaned_tasks() -> None:
+    """Fail tasks a previous process was still running when it stopped.
+
+    Orchestration runs inside this process, so a restart abandons whatever was
+    in flight. Left alone those records keep saying ``running`` and the task
+    list spins on work nobody is doing.
+    """
+    with SessionLocal() as db:
+        orphaned = TaskRepository(db).fail_unfinished(
+            reason="Interrupted: the workbench restarted while this task was running."
+        )
+    for task in orphaned:
+        record_audit(
+            event_type=audit_events.TASK_FAILED,
+            action="task:interrupted",
+            component="platform",
+            task_id=task.id,
+            user_id=task.user_id,
+            metadata={"status": "failed", "error": "interrupted by a restart"},
+        )
+    if orphaned:
+        logger.warning(
+            "Failed %d task(s) left running by a previous process: %s",
+            len(orphaned),
+            ", ".join(str(task.id) for task in orphaned),
+        )
 
 
 def _bootstrap() -> None:
@@ -89,6 +121,11 @@ async def lifespan(app: FastAPI):
     # Part 04 registers the tools, the orchestrator and the artifact store.
     # Last, because its tools call into Parts 02 and 03.
     orchestration.install()
+
+    # After the ports are up, so the failures reach the real ledger rather than
+    # the placeholder that denies everything.
+    _recover_orphaned_tasks()
+
     if settings.refresh_model_registry_on_startup:
         with SessionLocal() as db:
             statuses = await model_service.refresh_registry(db)
@@ -192,3 +229,40 @@ async def system_status(user: SystemReader) -> dict:
     }
 
 
+def _mount_frontend() -> None:
+    """Serve the built single-page app from the API, if it has been built.
+
+    Registered after every route above, so nothing here can shadow the API: the
+    catch-all only ever sees a path no route claimed. Unknown paths return
+    ``index.html`` because the router lives in the browser -- a reload on
+    ``/workbench`` must not 404 -- but paths under the API prefixes keep
+    returning their own 404, since a mistyped endpoint that answers with a page
+    of HTML is the kind of thing that costs an afternoon.
+    """
+    dist = settings.frontend_dist
+    if not settings.serve_frontend or not (dist / "index.html").is_file():
+        return
+
+    index = dist / "index.html"
+    app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+    # Paths the server owns. Handing these to the app would turn a route that is
+    # deliberately switched off into a page that answers 200 -- the API docs are
+    # disabled in production, and "disabled" has to keep meaning not found.
+    reserved_prefixes = ("api/", "internal/")
+    reserved_paths = {"health", "docs", "redoc", "openapi.json"}
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa(path: str) -> FileResponse:
+        if path.startswith(reserved_prefixes) or path in reserved_paths:
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = (dist / path).resolve()
+        # Only inside the build folder: a crafted path must not read the disk.
+        if path and candidate.is_file() and candidate.is_relative_to(dist.resolve()):
+            return FileResponse(candidate)
+        return FileResponse(index)
+
+    logger.info("Serving the built frontend from %s", dist.resolve())
+
+
+_mount_frontend()

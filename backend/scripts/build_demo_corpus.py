@@ -237,7 +237,13 @@ NODE 3 — Residue to TK-401
 
 
 def datasheets(out: Path) -> None:
-    lines = [BANNER, "STRICTLY CONFIDENTIAL", "", "Equipment Datasheet Register — CDU-3", ""]
+    lines = [
+        BANNER,
+        "STRICTLY CONFIDENTIAL",
+        "",
+        "Equipment Datasheet Register — CDU-3",
+        "",
+    ]
     lines.append(
         "This register carries commercially sensitive vendor pricing and is "
         "restricted to unit management."
@@ -246,8 +252,9 @@ def datasheets(out: Path) -> None:
     for tag, kind, description in EQUIPMENT:
         lines.append(f"{tag}  ({kind.replace('_', ' ')})")
         lines.append(f"    Service       : {description}")
-        lines.append(f"    Design code   : as per project specification SPEC-{abs(hash(tag)) % 900 + 100}")
-        lines.append(f"    Vendor        : (withheld — commercial in confidence)")
+        code = abs(hash(tag)) % 900 + 100
+        lines.append(f"    Design code   : as per project specification SPEC-{code}")
+        lines.append("    Vendor        : (withheld — commercial in confidence)")
         lines.append("")
     (out / "DS-CDU3-register.txt").write_text("\n".join(lines), encoding="utf-8")
 
@@ -342,7 +349,8 @@ def maintenance_log(out: Path) -> None:
                     [stamp, tag, kind, f"{value:.2f}", unit, shift, note]
                 )
 
-    with (out / "MAINT-CDU3-readings.csv").open("w", newline="", encoding="utf-8") as handle:
+    target = out / "MAINT-CDU3-readings.csv"
+    with target.open("w", newline="", encoding="utf-8") as handle:
         csv.writer(handle).writerows(rows)
 
 

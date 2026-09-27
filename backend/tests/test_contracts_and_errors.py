@@ -184,3 +184,43 @@ def test_there_is_exactly_one_migration_head():
 
     heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
     assert len(heads) == 1, f"expected one head, found {heads}"
+
+
+def test_the_built_frontend_is_served_at_the_root(client):
+    """One origin in production: the API serves the app it is the backend for.
+
+    Skipped rather than passed when the app has not been built, because a check
+    that quietly stops checking is worse than one that says it did not run.
+    """
+    import pytest
+
+    from app.core.config import settings
+
+    if not (settings.frontend_dist / "index.html").is_file():
+        pytest.skip("frontend/dist is absent -- run npm run build to exercise this")
+
+    root = client.get("/")
+    assert root.status_code == 200
+    assert root.headers["content-type"].startswith("text/html")
+
+    # A client-side route must survive a reload: the router is in the browser,
+    # so the server answers with the app rather than a 404.
+    deep = client.get("/workbench")
+    assert deep.status_code == 200
+    assert deep.headers["content-type"].startswith("text/html")
+
+
+def test_serving_the_frontend_never_shadows_the_api(client):
+    """A mistyped endpoint must not answer with a page of HTML."""
+    for path in ("/api/v1/does-not-exist", "/internal/does-not-exist"):
+        response = client.get(path)
+        assert response.status_code == 404, path
+        assert response.json()["error"]["code"] == "not_found"
+
+    # A route that is deliberately switched off must keep saying not found
+    # rather than being answered by the app. The API docs are the case that
+    # matters: they are off in production.
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404, path
+
+    assert client.get("/health").json() == {"status": "ok"}

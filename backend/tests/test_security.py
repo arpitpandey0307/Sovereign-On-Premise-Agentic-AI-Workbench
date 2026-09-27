@@ -656,3 +656,25 @@ def test_the_audit_log_records_a_denied_permission(client, make_user):
 
     events, _ = audit_ledger.recent(limit=50, event_type="PERMISSION_DENIED")
     assert any(event.user_id == engineer.id for event in events)
+
+
+def test_the_frontend_mount_serves_no_file_outside_the_build(client):
+    """The catch-all reads from disk, so it must read only from the build folder.
+
+    The positive control matters as much as the refusals: if nothing at all were
+    served from the folder, every traversal below would "pass" while proving
+    nothing.
+    """
+    if not (settings.frontend_dist / "index.html").is_file():
+        pytest.skip("frontend/dist is absent -- run npm run build to exercise this")
+
+    served = client.get("/favicon.svg")
+    assert served.status_code == 200
+    assert served.headers["content-type"].startswith("image/")
+
+    for attempt in ("/../.env", "/../backend/.env", "/..%2f.env", "/%2e%2e%2f.env"):
+        response = client.get(attempt)
+        # The app page, never the file: an unknown path is a client-side route.
+        assert response.status_code == 200, attempt
+        assert response.headers["content-type"].startswith("text/html"), attempt
+        assert "JWT_SECRET_KEY" not in response.text, attempt

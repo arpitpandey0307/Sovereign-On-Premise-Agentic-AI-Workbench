@@ -5,6 +5,13 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "SIM", "C4"]
 
 [lint.per-file-ignores]
+# Migrations come out of Alembic's own template: the header imports, the
+# `Union[str, None]` revision identifiers and the long column definitions are
+# regenerated on every autogenerate, so reformatting them by hand does not
+# stick. env.py is Alembic's template too.
+"alembic/env.py" = ["I001"]
+"alembic/versions/*.py" = ["E501", "I001", "UP007", "UP035"]
+
 # Settings are read at import time, so the test environment must be set
 # before any application module is imported.
 "tests/conftest.py" = ["E402"]

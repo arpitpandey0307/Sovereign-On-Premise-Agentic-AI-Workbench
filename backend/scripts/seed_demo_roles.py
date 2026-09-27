@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.db.database import SessionLocal, init_db  # noqa: E402
-from app.db.repositories.users import UserRepository  # noqa: E402
+from app.db.database import SessionLocal, init_db
+from app.db.repositories.users import UserRepository
 
 PASSWORD = "workbench"
 

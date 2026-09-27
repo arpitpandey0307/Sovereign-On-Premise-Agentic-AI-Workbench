@@ -60,7 +60,10 @@ def upload(path: Path, token: str) -> tuple[bool, str]:
 
     body = b"".join([
         f"--{boundary}\r\n".encode(),
-        f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'.encode(),
+        (
+            'Content-Disposition: form-data; name="file"; '
+            f'filename="{path.name}"\r\n'
+        ).encode(),
         f"Content-Type: {mime}\r\n\r\n".encode(),
         path.read_bytes(),
         f"\r\n--{boundary}--\r\n".encode(),
@@ -76,7 +79,7 @@ def upload(path: Path, token: str) -> tuple[bool, str]:
         detail = error.read().decode()
         try:
             detail = json.loads(detail)["error"]["message"]
-        except Exception:
+        except (ValueError, KeyError, TypeError):
             detail = detail[:120]
         return False, f"{error.code}: {detail}"
 
@@ -142,7 +145,9 @@ def main() -> int:
     deadline = time.time() + args.wait
     while time.time() < deadline:
         documents = call("GET", "/api/v1/documents?limit=100", token)["items"]
-        pending = [d for d in documents if d["chunk_count"] == 0 and not d["ingest_error"]]
+        pending = [
+            d for d in documents if d["chunk_count"] == 0 and not d["ingest_error"]
+        ]
         if not pending:
             break
         print(f"    {len(pending)} still processing…", flush=True)
@@ -155,7 +160,11 @@ def main() -> int:
             f"{document['filename'][:45]:46} {document['classification']:22} "
             f"{document['page_count']:>5} {document['chunk_count']:>7}  "
             f"{'yes' if document['indexed_in_graph'] else 'no'}"
-            + (f"   ERROR: {document['ingest_error'][:60]}" if document["ingest_error"] else "")
+            + (
+                f"   ERROR: {document['ingest_error'][:60]}"
+                if document["ingest_error"]
+                else ""
+            )
         )
 
     status = call("GET", "/internal/knowledge/status", token)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 
 def _conversation(client, headers):
@@ -120,3 +120,51 @@ def test_another_users_task_is_not_visible(client, auth_headers, make_user):
 def test_public_health_is_a_bare_liveness_probe(client):
     """Anything richer belongs behind auth on /api/v1/system/status."""
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_a_task_left_running_by_a_dead_process_is_failed_on_startup(
+    client, auth_headers, db
+):
+    """A restart abandons in-flight work, so the record must stop saying running.
+
+    Orchestration lives in this process. Nothing resumes a task whose asyncio
+    task, event buffer and state died with the previous one, so a record left
+    at ``running`` spins in the task list forever. Startup closes it out.
+    """
+    from app.db.repositories.tasks import TaskRepository
+    from app.main import _recover_orphaned_tasks
+
+    task_id = _create_task(client, auth_headers).json()["id"]
+    repo = TaskRepository(db)
+    # Force the record back to a mid-flight status, as a killed process leaves it.
+    task = repo.get(UUID(task_id))
+    task.status = "running"
+    task.error_message = None
+    db.commit()
+
+    _recover_orphaned_tasks()
+
+    db.expire_all()
+    recovered = repo.get(UUID(task_id))
+    assert recovered.status == "failed"
+    assert "restarted" in (recovered.error_message or "")
+
+    # And the ledger says the same thing, so the trace does not end mid-run.
+    trace = client.get(f"/api/v1/tasks/{task_id}/trace", headers=auth_headers)
+    assert any(entry["event_type"] == "TASK_FAILED" for entry in trace.json())
+
+
+def test_recovery_leaves_finished_tasks_alone(client, auth_headers, db):
+    from app.db.repositories.tasks import TaskRepository
+    from app.main import _recover_orphaned_tasks
+
+    task_id = _create_task(client, auth_headers).json()["id"]
+    repo = TaskRepository(db)
+    task = repo.get(UUID(task_id))
+    task.status = "completed"
+    db.commit()
+
+    _recover_orphaned_tasks()
+
+    db.expire_all()
+    assert repo.get(UUID(task_id)).status == "completed"
