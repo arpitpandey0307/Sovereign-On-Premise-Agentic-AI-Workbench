@@ -696,3 +696,37 @@ def test_computed_figures_lead_the_answer():
     prose = _as_prose(content, {"stdout": "Difference: 0.41 barg"})
     assert prose.startswith("Difference: 0.41 barg")
     assert "February" in prose
+
+
+@pytest.mark.parametrize("artifact_type", ["docx", "xlsx", "pptx"])
+def test_each_generator_gets_arguments_its_content_model_accepts(artifact_type):
+    """Every format was handed the docx arguments, so a spreadsheet request
+    failed with "Missing required argument(s): sheets"."""
+    from app.artifacts.content import DeckContent, WorkbookContent
+
+    draft = ApprovalNoteContent(
+        title="Approval Note",
+        summary="P-101 vibration is above the alarm limit.",
+        findings=[
+            Finding(
+                statement="Bearing vibration 7.1 mm/s exceeds 4.5 mm/s.",
+                severity="major",
+                citations=[Citation(document_name="INS-2026-018.txt", page=1)],
+            )
+        ],
+        recommendations=["Isolate per SOP-204 before work."],
+    ).model_dump(mode="json")
+
+    args = graph_module.artifact_args(artifact_type, draft, attempt=2)
+
+    assert args["filename"].endswith(f"_v2.{artifact_type}")
+    if artifact_type == "xlsx":
+        book = WorkbookContent.model_validate(args)
+        assert book.sheets[0].rows[0][2] == "Bearing vibration 7.1 mm/s exceeds 4.5 mm/s."
+        assert book.sheets[0].rows[0][3] == "INS-2026-018.txt"
+    elif artifact_type == "pptx":
+        deck = DeckContent.model_validate(args)
+        headings = [s.heading for s in deck.slides]
+        assert headings == ["Summary", "Findings", "Recommendations"]
+    else:
+        assert ApprovalNoteContent.model_validate(args).findings[0].severity == "major"

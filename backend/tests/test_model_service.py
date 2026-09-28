@@ -263,6 +263,36 @@ def test_a_remote_endpoint_is_refused():
     assert OllamaProvider("http://ollama:11434")
 
 
+@pytest.mark.anyio
+async def test_a_schema_request_turns_thinking_off(monkeypatch):
+    """qwen3 thinking by default spent all 1600 tokens reasoning and returned
+    an empty response, so every approval note failed its schema."""
+    import httpx
+
+    from app.models.base import ModelRequest
+    from app.models.ollama import OllamaProvider
+
+    sent: list[dict] = []
+
+    async def fake_post(self, url, json=None, **kwargs):
+        sent.append(json)
+        return httpx.Response(200, json={"response": '{"ok": true}'})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    provider = OllamaProvider("http://127.0.0.1:11434")
+
+    structured = await provider.generate(
+        ModelRequest(model_id="qwen3:8b", prompt="p", response_schema={"type": "object"})
+    )
+    plain = await provider.generate(ModelRequest(model_id="qwen3:8b", prompt="p"))
+
+    assert sent[0]["think"] is False
+    assert structured.structured == {"ok": True}
+    # Free-text answers keep the model's own default.
+    assert "think" not in sent[1]
+    assert plain.structured is None
+
+
 def test_structured_output_is_salvaged_from_prose():
     from app.models.base import coerce_structured
 

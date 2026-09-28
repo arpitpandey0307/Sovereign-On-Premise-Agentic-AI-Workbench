@@ -90,6 +90,11 @@ class OllamaProvider:
             # Ollama accepts a JSON schema here and constrains decoding to it,
             # which is what makes Part 04's planner parseable.
             payload["format"] = request.response_schema
+            # A thinking model (qwen3) otherwise reasons first and can spend the
+            # whole num_predict budget doing it, returning an empty response and
+            # failing the schema every time. The schema is the structure here;
+            # models that do not think ignore the flag.
+            payload["think"] = False
 
         started = time.perf_counter()
         try:

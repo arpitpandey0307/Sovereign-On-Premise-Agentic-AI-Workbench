@@ -699,6 +699,74 @@ def approval_gate(state: TaskState) -> dict:
     }
 
 
+def artifact_args(artifact_type: str, draft: dict, attempt: int) -> dict:
+    """Shape the drafted note into the arguments each generator takes.
+
+    The draft is always an approval note (title, summary, findings,
+    recommendations). The docx generator takes it as it is; the workbook and
+    the deck take tables and slides, so the same content is laid out as those.
+    """
+    title = draft.get("title") or "Approval Note"
+    summary = draft.get("summary", "")
+    findings = draft.get("findings") or []
+    recommendations = draft.get("recommendations") or []
+
+    if artifact_type == "xlsx":
+        finding_rows = []
+        for number, finding in enumerate(findings, start=1):
+            citation = (finding.get("citations") or [{}])[0]
+            finding_rows.append(
+                [
+                    number,
+                    finding.get("severity", "informational"),
+                    finding.get("statement", ""),
+                    citation.get("document_name"),
+                    citation.get("page"),
+                ]
+            )
+        return {
+            "title": title,
+            "sheets": [
+                {
+                    "name": "Findings",
+                    "columns": ["#", "Severity", "Finding", "Source", "Page"],
+                    "rows": finding_rows,
+                },
+                {
+                    "name": "Recommendations",
+                    "columns": ["#", "Recommendation"],
+                    "rows": [[n, text] for n, text in enumerate(recommendations, 1)],
+                },
+                {"name": "Summary", "columns": ["Summary"], "rows": [[summary]]},
+            ],
+            "filename": f"findings_v{attempt}.xlsx",
+        }
+
+    if artifact_type == "pptx":
+        slides = [{"heading": "Summary", "bullets": [summary] if summary else []}]
+        if findings:
+            slides.append(
+                {
+                    "heading": "Findings",
+                    "bullets": [
+                        f"[{f.get('severity', 'informational')}] {f.get('statement', '')}"
+                        for f in findings
+                    ],
+                }
+            )
+        if recommendations:
+            slides.append({"heading": "Recommendations", "bullets": recommendations})
+        return {"title": title, "slides": slides, "filename": f"briefing_v{attempt}.pptx"}
+
+    return {
+        "title": title,
+        "summary": summary,
+        "findings": findings,
+        "recommendations": recommendations,
+        "filename": f"approval_note_v{attempt}.docx",
+    }
+
+
 def generate_artifact(state: TaskState) -> dict:
     """Build the deliverable deterministically from the drafted content."""
     artifact_type = _artifact_type(state) or "docx"
@@ -717,13 +785,7 @@ def generate_artifact(state: TaskState) -> dict:
     tool = {"docx": "docx.generate", "xlsx": "xlsx.generate", "pptx": "pptx.generate"}[
         artifact_type
     ]
-    args = {
-        "title": draft.get("title", "Approval Note"),
-        "summary": draft.get("summary", ""),
-        "findings": draft.get("findings", []),
-        "recommendations": draft.get("recommendations", []),
-        "filename": f"approval_note_v{attempt}.docx",
-    }
+    args = artifact_args(artifact_type, draft, attempt)
 
     result = gateway.call(tool, args, context)
     if not result.ok:
