@@ -55,8 +55,11 @@ _ARTIFACT_WORDS = re.compile(
 _SPREADSHEET_WORDS = re.compile(r"\b(spreadsheet|xlsx|excel|workbook|table of)\b", re.I)
 _DECK_WORDS = re.compile(r"\b(deck|slides|presentation|pptx|powerpoint)\b", re.I)
 _CALCULATION_WORDS = re.compile(
-    r"\b(calculat|comput|percentage|total|sum|average|tolerance|deviation|"
-    r"how much|how many)\w*", re.I
+    # Only the verb stems take any ending. A trailing \w* on every word made
+    # "sum" match "summarise", so every summary ran a doomed calculation step.
+    r"\b(?:(?:calculat|comput)\w*|(?:percentage|total|sum|average|tolerance|"
+    r"deviation)s?|how much|how many)\b",
+    re.I,
 )
 
 DRAFT_SYSTEM = (

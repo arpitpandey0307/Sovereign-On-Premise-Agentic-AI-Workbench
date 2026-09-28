@@ -617,6 +617,28 @@ def test_a_calculation_request_plans_the_calculate_step():
     assert "calculation" in requirements
 
 
+@pytest.mark.parametrize(
+    ("request_text", "calculates"),
+    [
+        ("Summarise the key findings of the latest inspection report.", False),
+        ("Give a summary of SOP-204.", False),
+        ("Is the totalizer on FT-101 mentioned anywhere?", False),
+        ("Calculate the sum of the readings.", True),
+        ("What is the total flow?", True),
+        ("Give me the totals and averages.", True),
+        ("Compute the deviation of each reading.", True),
+        ("How many readings exceed the alarm limit?", True),
+    ],
+)
+def test_calculation_is_planned_only_when_asked_for(request_text, calculates):
+    """"sum" once matched "summarise", so every summary ran a code step that
+    had nothing to calculate and failed in front of the user."""
+    from app.orchestration.planner import analyse
+
+    requirements, _ = analyse(request_text, has_inputs=False)
+    assert ("calculation" in requirements) is calculates
+
+
 def test_the_graph_has_a_node_for_every_step_it_plans():
     """The plan must not name a step nothing performs.
 
